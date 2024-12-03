@@ -499,7 +499,7 @@ If the reason of rejection is the reports who mentioned both issues, we should a
 
 As I have written, the root cause is that the liquidation will be called with wrong values. 
 
-You can also see my comment on your other similar escalation https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/473#issuecomment-2426173895
+You can also see my comment on your other similar escalation https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/473\#issuecomment-2426173895
 
 The same principle is grouped when there are reentrancy vulnerabilities, lack of slippage protection, or unsafe cast. Even if they are different functions and contracts, we duplicate them together.
 
@@ -518,7 +518,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/107/#issuecomment-2391661677): rejected
+- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/107/\#issuecomment-2391661677): rejected
 
 # Issue H-3: Liquidation can be DOSed due to lack of liquidity on collateral asset reserve 
 
@@ -628,17 +628,17 @@ Each asset reserve should be modified to not allow borrowing or withdrawing for 
 1 comment(s) were left on this issue during the judging contest.
 
 **Honour** commented:
->  see #147
+>  see \#147
 
 
 
 **0xspearmint1**
 
-This issue should be high severity, it satisfies Sherlock's [criteria](https://docs.sherlock.xyz/audits/real-time-judging/judging#iv.-how-to-identify-a-high-issue) for high issues
+This issue should be high severity, it satisfies Sherlock's [criteria](https://docs.sherlock.xyz/audits/real-time-judging/judging\#iv.-how-to-identify-a-high-issue) for high issues
 
->Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+>Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1\%.
 
-The attacker can easily delay the liquidation till bad debt accumulates which will be a >1% loss for the lender 
+The attacker can easily delay the liquidation till bad debt accumulates which will be a >1\% loss for the lender 
 
 
 
@@ -682,9 +682,9 @@ The interest cost will never need to be paid, because the borrow will not be liq
 > he DoS on liquidations is only temporary because the borrower must eventually return the borrowed funds
 
 The DoS on liquidations is not temporary because the borrow will never need to be repaid (because there is no risk of liquidation from accrued interest, because all the collateral is borrowed)
-Even if it was temporary, a DoS of liquidations can be weaponised to lead to bad debt, which is >1% profit for the attacker (at the expense of depositors) since their borrowed funds will be worth more than their collateral provided. 
+Even if it was temporary, a DoS of liquidations can be weaponised to lead to bad debt, which is >1\% profit for the attacker (at the expense of depositors) since their borrowed funds will be worth more than their collateral provided. 
 
-Based on the above, it is clearly a high severity issue. It has arised due to forking AAVE but not allowing representative aTokens to be seized, as mentioned in #318:
+Based on the above, it is clearly a high severity issue. It has arised due to forking AAVE but not allowing representative aTokens to be seized, as mentioned in \#318:
 > This is a known issue that aave have mitigated by allowing liquidators to seize ATokens instead of underlying tokens, when there is not enough liquidity in the pools.
 > To achieve the modularity expected zerolend have tried to simplify the design by removing this core functionality, this however exposes the protocol to the risk of liquidation being blocked if there is not enough liquidity in the pools.
 
@@ -722,7 +722,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [haxatron](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/198/#issuecomment-2394853491): accepted
+- [haxatron](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/198/\#issuecomment-2394853491): accepted
 
 # Issue H-4: An attacker can hijack the `CuratedVault`'s matured yield 
 
@@ -911,7 +911,7 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 I agree that this issue meets the requirements for High severity:
 
-> Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+> Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1\%.
 
 Due to the stale `totalAssets` data, all actions that depend on this function can result in user losses without requiring any external conditions to be met.
 
@@ -928,7 +928,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/199/#issuecomment-2391738167): accepted
+- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/199/\#issuecomment-2391738167): accepted
 
 # Issue H-5: `LiquidationLogic@_burnCollateralTokens` does not account for liquidation fees when withdrawing collateral during liquidation leading to incorrect accounting and Pools insolvency 
 
@@ -1231,7 +1231,7 @@ Deploying pools is permission-less, which is why the protocol was interested in 
 
 **cvetanovv**
 
-I agree with the escalation of this issue to be High severity. For more information on what I think about the rule, you can see this comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234#issuecomment-2413297520
+I agree with the escalation of this issue to be High severity. For more information on what I think about the rule, you can see this comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234\#issuecomment-2413297520
 
 Planning to accept the escalation and make this issue High severity.
 
@@ -1246,19 +1246,19 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [iamnmt](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/233/#issuecomment-2391294265): accepted
+- [iamnmt](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/233/\#issuecomment-2391294265): accepted
 
 **DemoreXTess**
 
-@cvetanovv Can we reconsider this issue per this comment : https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234#issuecomment-2427578837_
+@cvetanovv Can we reconsider this issue per this comment : https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234\#issuecomment-2427578837\_
 
 The report wrongly states that the funds are locked forever. ZeroLend has permission to make changes on the pools. Users can get back their funds after adjustment by ZeroLend
 
 **0xSpearmint**
 
-The referenced [comment ](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234#issuecomment-2427578837)is not accurate.
+The referenced [comment ](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/234\#issuecomment-2427578837)is not accurate.
 
-Even if the protocol sets a new IRM through [this only configurator function](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/Pool.sol#L150-L158), the pool admin can instantly change it back to the malicious IRM using [this only pool admin function](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/manager/PoolConfigurator.sol#L105-L111). 
+Even if the protocol sets a new IRM through [this only configurator function](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/Pool.sol\#L150-L158), the pool admin can instantly change it back to the malicious IRM using [this only pool admin function](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/manager/PoolConfigurator.sol\#L105-L111). 
 
 **cvetanovv**
 
@@ -2131,13 +2131,13 @@ The `getSupplyBalance` and `getDebtBalance` functions need an update to accurate
 
 Escalate
 
-As I stated in #107 , there are two issues categorized in the same pool. I know it's same problem which is applied to two different variable but the debt and supply are completely different things. Those issues have completely different impacts on the protocol even the problem is similar.
+As I stated in \#107 , there are two issues categorized in the same pool. I know it's same problem which is applied to two different variable but the debt and supply are completely different things. Those issues have completely different impacts on the protocol even the problem is similar.
 
 **sherlock-admin3**
 
 > Escalate
 > 
-> As I stated in #107 , there are two issues categorized in the same pool. I know it's same problem which is applied to two different variable but the debt and supply are completely different things. Those issues have completely different impacts on the protocol even the problem is similar.
+> As I stated in \#107 , there are two issues categorized in the same pool. I know it's same problem which is applied to two different variable but the debt and supply are completely different things. Those issues have completely different impacts on the protocol even the problem is similar.
 
 You've created a valid escalation!
 
@@ -2167,7 +2167,7 @@ The Lead Judge correctly duplicated them under the same logical error rule.
 
 Moreover, the root cause is the same. It is that the functions return `share amount` instead of `asset amount`.
 
-You might also look at some Watson's who have written two issues and see how the difference is only a few words (for example, #151 and #152).
+You might also look at some Watson's who have written two issues and see how the difference is only a few words (for example, \#151 and \#152).
 
 Planning to reject the escalation and leave the issue as is.
 
@@ -2182,7 +2182,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/473/#issuecomment-2391694709): rejected
+- [DemoreXTess](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/473/\#issuecomment-2391694709): rejected
 
 # Issue M-1: Using the same heartbeat for multiple price feeds, causing DOS 
 
@@ -2368,7 +2368,7 @@ library SharesMathLib {
 
 **nevillehuang**
 
-DECIMAL_OFFSETS and virtual shares work [hand in hand to combat first depositor inflation attacks](https://docs.openzeppelin.com/contracts/4.x/erc4626#defending_with_a_virtual_offset), so I personally believe they are duplicates and under a single category of issues. Additionally, even if offset is zero and virtual shares is implemented, it can already make the attack non-profitable, so I would say the root cause here is the lack of implementation of a virtual share
+DECIMAL\_OFFSETS and virtual shares work [hand in hand to combat first depositor inflation attacks](https://docs.openzeppelin.com/contracts/4.x/erc4626\#defending\_with\_a\_virtual\_offset), so I personally believe they are duplicates and under a single category of issues. Additionally, even if offset is zero and virtual shares is implemented, it can already make the attack non-profitable, so I would say the root cause here is the lack of implementation of a virtual share
 
 > If the offset is greater than 0, the attacker will have to suffer losses that are orders of magnitude bigger than the amount of value that can hypothetically be stolen from the user.
 
@@ -2413,7 +2413,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/141/#issuecomment-2392010510): rejected
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/141/\#issuecomment-2392010510): rejected
 
 # Issue M-3: Malicious actors can execute sandwich attacks during market addition with existing funds 
 
@@ -2550,16 +2550,16 @@ contract CuratedVaultSandwichTest is BaseVaultTest {
     address user;
 
     function setUp() public {
-        _setUpBaseVault();
-        _setUpVault();
+        \_setUpBaseVault();
+        \_setUpVault();
 
         attacker = makeAddr("attacker");
         user = makeAddr("user");
 
         // Setup initial cap for all
-        _setCap(allMarkets[0], 600 ether);
-        _setCap(allMarkets[1], 600 ether);
-        _setCap(allMarkets[2], 600 ether);
+        \_setCap(allMarkets[0], 600 ether);
+        \_setCap(allMarkets[1], 600 ether);
+        \_setCap(allMarkets[2], 600 ether);
 
         // Set supply queue to use both markets
         IPool[] memory newSupplyQueue = new IPool[](2);
@@ -2579,7 +2579,7 @@ contract CuratedVaultSandwichTest is BaseVaultTest {
         loanToken.approve(address(vault), 1000 ether);
     }
 
-    function _setUpVault() internal {
+    function \_setUpVault() internal {
         // copied from Integration Vault Test
         CuratedVault instance = new CuratedVault();
         vaultFactory = ICuratedVaultFactory(new CuratedVaultFactory(address(instance)));
@@ -2616,7 +2616,7 @@ contract CuratedVaultSandwichTest is BaseVaultTest {
         vault.setSkimRecipient(skimRecipient);
         vm.stopPrank();
 
-        _setCap(idleMarket, type(uint184).max);
+        \_setCap(idleMarket, type(uint184).max);
 
         loanToken.approve(address(vault), type(uint256).max);
         collateralToken.approve(address(vault), type(uint256).max);
@@ -2633,7 +2633,7 @@ contract CuratedVaultSandwichTest is BaseVaultTest {
     }
 
 
-    function _setCap(IPool pool, uint256 newCap) internal {
+    function \_setCap(IPool pool, uint256 newCap) internal {
         // largely copied from IntegrationVaultTest.sol
 
         uint256 cap = vault.config(pool).cap;
@@ -2680,7 +2680,7 @@ contract CuratedVaultSandwichTest is BaseVaultTest {
         console.log("User assets:", vault.convertToAssets(vault.balanceOf(user))/ 1 ether, "ether");
 
         // First market had to be removed due to issues.
-        _setCap(allMarkets[0], 0);
+        \_setCap(allMarkets[0], 0);
         vm.startPrank(curator);
         vault.submitMarketRemoval(allMarkets[0]);
         vm.stopPrank();
@@ -2704,7 +2704,7 @@ contract CuratedVaultSandwichTest is BaseVaultTest {
         console.log("Attacker shares received: ", attackerShares/ 1 ether, "ether");
 
         // Re-add the removed market back which had assets
-        _setCap(allMarkets[0], 600 ether);
+        \_setCap(allMarkets[0], 600 ether);
 
         // Attacker withdraws
         vm.prank(attacker);
@@ -2856,7 +2856,7 @@ In this code, after timelock expiry (removableAt) pool with assets will be remov
 ```solidity
         pool.forceUpdateReserve(asset());
         uint256 supplyAssets = pool.supplyAssets(asset(), positionId);
-        _updateLastTotalAssets(lastTotalAssets + supplyAssets);
+        \_updateLastTotalAssets(lastTotalAssets + supplyAssets);
 ```
 
 However, this creates a vulnerability: An attacker can exploit this process to steal a majority of these funds, as demonstrated in the provided Proof of Concept (POC).
@@ -2889,10 +2889,10 @@ The above comment trying to invalidate the issue is incorrect. In fact, the cura
 **Honour-d-dev**
 
 @0xNirix 
-Freezing reserves does not prevent withdrawals though, you can check the [executeWithdraw](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/logic/SupplyLogic.sol#L123) and [validateWithdraw](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/logic/ValidationLogic.sol#L96) functions, freeing only prevents supply.
+Freezing reserves does not prevent withdrawals though, you can check the [executeWithdraw](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/logic/SupplyLogic.sol\#L123) and [validateWithdraw](https://github.com/zerolend/zerolend-one/blob/6b681f2a16be20cb2d43e544c164f913a8db1cb8/contracts/core/pool/logic/ValidationLogic.sol\#L96) functions, freeing only prevents supply.
 So claims relying on freezing are invalid in this case.
 
-If a pool is so compromised that it cannot be withdrawn from, then it doesn't makes sense for it to be added again. If it's a temporary compromise then the pool can just be shifted to be bottom of the withdraw queue (there's a functionality for this), instead of removing and loosing users funds. _**normal operational procedures**_ (as claimed in the above comment) should not be reason for removing a pool without properly reallocating funds since these are obviously temporary
+If a pool is so compromised that it cannot be withdrawn from, then it doesn't makes sense for it to be added again. If it's a temporary compromise then the pool can just be shifted to be bottom of the withdraw queue (there's a functionality for this), instead of removing and loosing users funds. \_**normal operational procedures**\_ (as claimed in the above comment) should not be reason for removing a pool without properly reallocating funds since these are obviously temporary
 
 **0xNirix**
 
@@ -2921,7 +2921,7 @@ That is precisely why the code exists in the first place in the addition flow, t
        // Take into account assets of the new market without applying a fee.
         pool.forceUpdateReserve(asset());
         uint256 supplyAssets = pool.supplyAssets(asset(), positionId);
-        _updateLastTotalAssets(lastTotalAssets + supplyAssets);
+        \_updateLastTotalAssets(lastTotalAssets + supplyAssets);
 ```
 
 
@@ -3034,7 +3034,7 @@ Will wait for HoJ to take a final call.
 @0xNirix it is your report that first mentions an **issue** but fails to provide a valid example as we see here
 > **Isn't it impossible to add a market with existing funds?**
 A: No, it's actually possible and even anticipated in two scenarios:
-Reintegrating a previously removed market with leftover funds, e.g. A market removed due to an **_issue_**, but not all funds were withdrawn.
+Reintegrating a previously removed market with leftover funds, e.g. A market removed due to an **\_issue\_**, but not all funds were withdrawn.
 
 > My stand from day one has been that it is perfectly feasible for a curator to remove pools with assets for both non-compromised or compromised scenarios
 
@@ -3052,7 +3052,7 @@ It is very obvious that currently this issue has no possible scenario, and also 
 
 @Honour-d-dev, please read my entire comment. I have clearly explained why it may be necessary and rational for a curator to remove a pool rather than simply reorder it.
 
-@cvetanovv, I apologize for this late request, but upon further consideration, I believe this issue should be upgraded to **High**. The impact of this issue is very similar to issue #233, which was judged high, where a pool owner could maliciously set incorrect interest rates causing withdrawals to revert. Eventually, a curator would reasonably consider such funds lost and remove the pool. They would need to remove such failing pools from their withdrawal queues for the reasons I explained in https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2432814025: to prevent losses to the new depositors and/or due to withdrawal queue limitations. Later, the pool owner could correct the interest rate, and the curator would want to re-add the pool to the vault. However, the pool owner would then execute this attack from a different wallet. The impact would be identical - loss of vault funds that were in the pool, and the pool owner could even claim they have no malicious intent.
+@cvetanovv, I apologize for this late request, but upon further consideration, I believe this issue should be upgraded to **High**. The impact of this issue is very similar to issue \#233, which was judged high, where a pool owner could maliciously set incorrect interest rates causing withdrawals to revert. Eventually, a curator would reasonably consider such funds lost and remove the pool. They would need to remove such failing pools from their withdrawal queues for the reasons I explained in https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143\#issuecomment-2432814025: to prevent losses to the new depositors and/or due to withdrawal queue limitations. Later, the pool owner could correct the interest rate, and the curator would want to re-add the pool to the vault. However, the pool owner would then execute this attack from a different wallet. The impact would be identical - loss of vault funds that were in the pool, and the pool owner could even claim they have no malicious intent.
 
 **Honour-d-dev**
 
@@ -3060,7 +3060,7 @@ It is very obvious that currently this issue has no possible scenario, and also 
 
 I read your comment, I believe the 30 pool limit is not a valid reason either. Reordering to preserve users funds if possible should have more priority over adding new pools. If a pool already has 30 pools in it and one is temporarily non-withdrawable, surely there're 29 other working pools, no?
 
-> a pool owner could maliciously set incorrect interest rates causing withdrawals to revert. Eventually, a curator would reasonably consider such funds lost and remove the pool. They would need to remove such failing pools from their withdrawal queues for the reasons I explained in https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2432814025: to prevent losses to the new depositors and/or due to withdrawal queue limitations. Later, the pool owner could correct the interest rate, and the curator would want to re-add the pool to the vault.
+> a pool owner could maliciously set incorrect interest rates causing withdrawals to revert. Eventually, a curator would reasonably consider such funds lost and remove the pool. They would need to remove such failing pools from their withdrawal queues for the reasons I explained in https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143\#issuecomment-2432814025: to prevent losses to the new depositors and/or due to withdrawal queue limitations. Later, the pool owner could correct the interest rate, and the curator would want to re-add the pool to the vault.
 
 This example is also invalid , a rational curator would never re-add a pool with a malicious pool owner that can set incorrect interest rates, whether they choose to correct the rates or not. The security risks are vey obvious from adding such a pool.
 
@@ -3068,7 +3068,7 @@ This example is also invalid , a rational curator would never re-add a pool with
 
 **There are only 2 possible cases here**
 1. if a pool/pool admin is malicious and cannot be withdrawn from, it should be removed and never re-added (it makes no sense to re-add a malicious pool even if it appears to be  working correctly)
-2. If the pool is not compromised but temporarily non-withdrawable it should be reordered instead of removed ( because removing might still cost some users their funds an i stated [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2433201858))
+2. If the pool is not compromised but temporarily non-withdrawable it should be reordered instead of removed ( because removing might still cost some users their funds an i stated [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143\#issuecomment-2433201858))
 
 **0xNirix**
 
@@ -3084,7 +3084,7 @@ Probably repeating this for the nth time as well - how does curator know that po
 And even if malicious pool owner, why not, if curator can very well ensure that there is no downside (because no new deposit would go to the pool) and there is only upside (can potentially get funds back).
 
 > if a pool/pool admin is malicious and cannot be withdrawn from, it should be removed and never re-added (it makes no sense to re-add a malicious pool even if it appears to be working correctly)
-> If the pool is not compromised but temporarily non-withdrawable it should be reordered instead of removed ( because removing might still cost some users their funds an i stated https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143#issuecomment-2433201858)
+> If the pool is not compromised but temporarily non-withdrawable it should be reordered instead of removed ( because removing might still cost some users their funds an i stated https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143\#issuecomment-2433201858)
 
 I have given examples for both these cases with clear reasons on how a curator might end up removing and then re-adding pool. It should be pretty obvious that this is an High issue, given other similar judgements.
 
@@ -3109,7 +3109,7 @@ Unique
 Escalations have been resolved successfully!
 
 Escalation status:
-- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143/#issuecomment-2391978988): rejected
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/143/\#issuecomment-2391978988): rejected
 
 # Issue M-4: `GenericLogic.sol` contract assumes all price feeds has the same decimals but is a wrong assumption that leads to an incorrect health factor math. 
 
@@ -3168,7 +3168,7 @@ There are 2 possible solution:
 
 **nevillehuang**
 
-As seen [here](https://github.com/sherlock-audit/2024-06-new-scope?tab=readme-ov-file#q-are-there-any-limitations-on-values-set-by-admins-or-other-roles-in-protocols-you-integrate-with-including-restrictions-on-array-lengths)
+As seen [here](https://github.com/sherlock-audit/2024-06-new-scope?tab=readme-ov-file\#q-are-there-any-limitations-on-values-set-by-admins-or-other-roles-in-protocols-you-integrate-with-including-restrictions-on-array-lengths)
 
 > Q: Are there any limitations on values set by admins (or other roles) in protocols you integrate with, including restrictions on array lengths?
 > No
@@ -3185,7 +3185,7 @@ Escalate
 
 this issue is valid!
 
-The above [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166#issuecomment-2388428543) is not a valid reason for it to be invalid, pools are permissionless and anyone can create a pool and choose to integrate these tokens with un-conventional price feed decimals and the impact on users can be severe especially if not detected early.
+The above [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166\#issuecomment-2388428543) is not a valid reason for it to be invalid, pools are permissionless and anyone can create a pool and choose to integrate these tokens with un-conventional price feed decimals and the impact on users can be severe especially if not detected early.
 
 If the argument is that the oracle can be removed or the token can be paused by admin if such an issue occurs, the impact is still severe (loss of funds for users , liquidation etc) and not reversible. Such cases can be easily prevented by the mitigation provided in the report.
 
@@ -3195,7 +3195,7 @@ If the argument is that the oracle can be removed or the token can be paused by 
 > 
 > this issue is valid!
 > 
-> The above [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166#issuecomment-2388428543) is not a valid reason for it to be invalid, pools are permissionless and anyone can create a pool and choose to integrate these tokens with un-conventional price feed decimals and the impact on users can be severe especially if not detected early.
+> The above [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166\#issuecomment-2388428543) is not a valid reason for it to be invalid, pools are permissionless and anyone can create a pool and choose to integrate these tokens with un-conventional price feed decimals and the impact on users can be severe especially if not detected early.
 > 
 > If the argument is that the oracle can be removed or the token can be paused by admin if such an issue occurs, the impact is still severe (loss of funds for users , liquidation etc) and not reversible. Such cases can be easily prevented by the mitigation provided in the report.
 
@@ -3207,7 +3207,7 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 **cvetanovv**
 
-The Lead Judge is right with his comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166#issuecomment-2388428543
+The Lead Judge is right with his comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166\#issuecomment-2388428543
 
 In addition, pool managers are expected to act rationally(i.e. are trusted):
 
@@ -3215,7 +3215,7 @@ In addition, pool managers are expected to act rationally(i.e. are trusted):
 >
 > There are two set of actors. Actors who manage pools and actors who mange vaults. If an action done by one party causes the other party to suffer losses we'd want to consider that.
 
-The only valid variant of this issue is if there was mention of the malicious attack path. Then, I would duplicate it with #234.
+The only valid variant of this issue is if there was mention of the malicious attack path. Then, I would duplicate it with \#234.
 
 Planning to reject the escalation and leave the issue as is.
 
@@ -3223,7 +3223,7 @@ Planning to reject the escalation and leave the issue as is.
 
 @cvetanovv 
 
-The point here is pool creation is permissionless, so anyone can create a pool (become a pool manager) and add whichever tokens they like to their pool. The possibility of adding an oracle with wrong decimals cannot be attributed to irrational behavior(or being malicious) as there is no guarantee that the pool manager is aware of the fact that price feed decimals are not normalized (see second recommendations #166 and #442 ) in zerolend.
+The point here is pool creation is permissionless, so anyone can create a pool (become a pool manager) and add whichever tokens they like to their pool. The possibility of adding an oracle with wrong decimals cannot be attributed to irrational behavior(or being malicious) as there is no guarantee that the pool manager is aware of the fact that price feed decimals are not normalized (see second recommendations \#166 and \#442 ) in zerolend.
 
 This can happen even if pool managers behave rationally (with good intentions) and can cause severe and irreversible damage to users before it's corrected. It's better to completely prevent the possibility of such cases as the chances of this happening is pretty high given the permissionless nature of pools.
 
@@ -3279,7 +3279,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166/#issuecomment-2395201631): accepted
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/166/\#issuecomment-2395201631): accepted
 
 **coffiasd**
 
@@ -3497,7 +3497,7 @@ Requests remaining: **15**
 
 **Tomiwasa0**
 
-1. After setting Flashloan premium to 0.09%
+1. After setting Flashloan premium to 0.09\%
 
 2. Import to the WithdrawtTEST
 
@@ -3515,10 +3515,10 @@ contract PoolWithdrawTests is PoolSetup {
 
 3. PASTE AND RUN THE POC
 ```solidity
-function _generateFlashloanCondition() internal {
+function \_generateFlashloanCondition() internal {
     // Mint and approve tokenA and tokenC for bob
-    _mintAndApprove(bob, tokenA, 60 ether, address(pool));
-    _mintAndApprove(bob, tokenC, 2500 ether, address(pool));
+    \_mintAndApprove(bob, tokenA, 60 ether, address(pool));
+    \_mintAndApprove(bob, tokenC, 2500 ether, address(pool));
 
     // Start prank as bob to simulate transactions from bob's account
     vm.startPrank(bob);
@@ -3531,7 +3531,7 @@ function _generateFlashloanCondition() internal {
 }
 ```
 
-### Updated `testPoolWithdraw` Function:
+\#\#\# Updated `testPoolWithdraw` Function:
 ```solidity
 function testPoolWithdraw() external {
     // Declare amounts for supply, mint, withdraw, and borrow
@@ -3574,7 +3574,7 @@ function testPoolWithdraw() external {
     // Prepare and execute flash loan
     bytes memory emptyParams;
     MockFlashLoanSimpleReceiver mockFlashSimpleReceiver = new MockFlashLoanSimpleReceiver(pool);
-    _generateFlashloanCondition();
+    \_generateFlashloanCondition();
 
     uint256 premium = poolFactory.flashLoanPremiumToProtocol();
 
@@ -3583,8 +3583,8 @@ function testPoolWithdraw() external {
 
     // Expect flash loan event emission
     vm.expectEmit(true, true, true, true);
-    emit PoolEventsLib.FlashLoan(address(mockFlashSimpleReceiver), alice, address(tokenA), 40 ether, (40 ether * premium) / 10_000);
-    emit Transfer(address(0), address(mockFlashSimpleReceiver), (40 ether * premium) / 10_000);
+    emit PoolEventsLib.FlashLoan(address(mockFlashSimpleReceiver), alice, address(tokenA), 40 ether, (40 ether * premium) / 10\_000);
+    emit Transfer(address(0), address(mockFlashSimpleReceiver), (40 ether * premium) / 10\_000);
 
     // Execute the flash loan
     pool.flashLoanSimple(address(mockFlashSimpleReceiver), address(tokenA), 40 ether, emptyParams);
@@ -3768,7 +3768,7 @@ function supplyForUser(address user, uint256 supplyAmount, uint256 tokenId, bool
   INFTPositionManager.AssetOperationParams memory params =
     INFTPositionManager.AssetOperationParams(address(tokenA), user, supplyAmount, tokenId, data);
 
-  _mintAndApprove(user, tokenA, mintAmount, address(nftPositionManager));
+  \_mintAndApprove(user, tokenA, mintAmount, address(nftPositionManager));
 
   vm.startPrank(user);
   if (mintNewToken == true) {
@@ -3789,8 +3789,8 @@ function borrowForUser(address user, uint256 borrowAmount, uint256 tokenId) publ
 }
 
 function testRewardDistribution() external {
-  DataTypes.ReserveData memory reserveData_0 = pool.getReserveData(address(tokenA));
-  console2.log('initial liquidity index                => ', reserveData_0.liquidityIndex);
+  DataTypes.ReserveData memory reserveData\_0 = pool.getReserveData(address(tokenA));
+  console2.log('initial liquidity index                => ', reserveData\_0.liquidityIndex);
 
   address U1 = address(11);
   address U2 = address(12);
@@ -3819,8 +3819,8 @@ function testRewardDistribution() external {
   supplyForUser(alice, 1000 ether, 3, true);
   borrowForUser(alice, 600 ether, 3);
 
-  DataTypes.ReserveData memory reserveData_1 = pool.getReserveData(address(tokenA));
-  console2.log('current liquidity rate                 => ', reserveData_1.liquidityRate);
+  DataTypes.ReserveData memory reserveData\_1 = pool.getReserveData(address(tokenA));
+  console2.log('current liquidity rate                 => ', reserveData\_1.liquidityRate);
 
   /**
     Skipping 2000 days is done for testing purposes to increase the liquidity index. 
@@ -3829,8 +3829,8 @@ function testRewardDistribution() external {
   vm.warp(block.timestamp + 2000 days);
 
   pool.forceUpdateReserve(address(tokenA));
-  DataTypes.ReserveData memory reserveData_2 = pool.getReserveData(address(tokenA));
-  console2.log('updated liquidity index                => ', reserveData_2.liquidityIndex);
+  DataTypes.ReserveData memory reserveData\_2 = pool.getReserveData(address(tokenA));
+  console2.log('updated liquidity index                => ', reserveData\_2.liquidityIndex);
 
   /**
     User U2 supplies 100 wei (a dust amount) to trigger an update of the balances for rewards.
@@ -3871,10 +3871,10 @@ Is this practical?
 
 escalate
 
-This issue does not meet Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) that requires the following:
->Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+This issue does not meet Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging\#v.-how-to-identify-a-medium-issue) that requires the following:
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 
-For this issue to cause a 0.01% loss there must be an unrealistic increase in the liquidityIndex in an extremely small 14 day period. The POC provided inflates the liquidity index by borrowing a 60% of the funds at a huge interest rate for 5.5 years, this is absolutely not realistic and will never happen.
+For this issue to cause a 0.01\% loss there must be an unrealistic increase in the liquidityIndex in an extremely small 14 day period. The POC provided inflates the liquidity index by borrowing a 60\% of the funds at a huge interest rate for 5.5 years, this is absolutely not realistic and will never happen.
 
 
 
@@ -3883,10 +3883,10 @@ For this issue to cause a 0.01% loss there must be an unrealistic increase in th
 
 > escalate
 > 
-> This issue does not meet Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) that requires the following:
-> >Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+> This issue does not meet Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging\#v.-how-to-identify-a-medium-issue) that requires the following:
+> >Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 > 
-> For this issue to cause a 0.01% loss there must be an unrealistic increase in the liquidityIndex in an extremely small 14 day period. The POC provided inflates the liquidity index by borrowing a 60% of the funds at a huge interest rate for 5.5 years, this is absolutely not realistic and will never happen.
+> For this issue to cause a 0.01\% loss there must be an unrealistic increase in the liquidityIndex in an extremely small 14 day period. The POC provided inflates the liquidity index by borrowing a 60\% of the funds at a huge interest rate for 5.5 years, this is absolutely not realistic and will never happen.
 > 
 > 
 > 
@@ -3901,18 +3901,18 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 This issue is a high severity bug:
 - Tracking shares instead of assets is basically 101 of staking rewards contracts. 
-- There is a provable and pocable significant  loss/theft of yield (more than 1%)
+- There is a provable and pocable significant  loss/theft of yield (more than 1\%)
 - Rewards Accounting is completly false 
 
 **obou07**
 
 escalate 
-per [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393#issuecomment-2395124046)
+per [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393\#issuecomment-2395124046)
 
 **sherlock-admin3**
 
 > escalate 
-> per [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393#issuecomment-2395124046)
+> per [comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393\#issuecomment-2395124046)
 
 You've created a valid escalation!
 
@@ -3924,26 +3924,26 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 I think this issue can be of High severity. 
 
-The attack path described in #58 shows very well how a user can deposit 1 USDC every day and earn more rewards than a normal user. 
+The attack path described in \#58 shows very well how a user can deposit 1 USDC every day and earn more rewards than a normal user. 
 
-To execute this attack, we have almost no restrictions( except the normal ones, to have a reward and interest rate above zero), and the losses exceed 1%.
+To execute this attack, we have almost no restrictions( except the normal ones, to have a reward and interest rate above zero), and the losses exceed 1\%.
 
 Planning to accept @obou07 escalation and make this issue High.
 
 **0xSpearmint**
 
 @cvetanovv This issue has a severe constraint:
-1. The other users must not update their position at all for an extended period of time (~4 months to create a 1% difference). This is an external constraint out of the control of the attacker. Furthermore, since a reward EPOCH lasts only 2 weeks it is likely that users will redeem rewards and then compound them back into their position, this totally protects them from the issue.
+1. The other users must not update their position at all for an extended period of time (~4 months to create a 1\% difference). This is an external constraint out of the control of the attacker. Furthermore, since a reward EPOCH lasts only 2 weeks it is likely that users will redeem rewards and then compound them back into their position, this totally protects them from the issue.
 
 
 **samuraii77**
 
-The intended design is for users to __NOT__ update their position, thus it is expected for users to not update their positions for prolonged periods of time. For that reason, the used word "constraint" is not quite correct, it is not a constraint, it is the expected scenario.
+The intended design is for users to \_\_NOT\_\_ update their position, thus it is expected for users to not update their positions for prolonged periods of time. For that reason, the used word "constraint" is not quite correct, it is not a constraint, it is the expected scenario.
 
 **0xSpearmint**
 
 High severity states
->Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+>Definite loss of funds without (extensive) limitations of external conditions. The loss of the affected party must exceed 1\%.
 
 What I described is an external condition (user does not update their position at all, for an extended period of time) that looks extensive to me. All it takes is for a user to supply/withdraw from their position once in a 4 month period to make this issue have very low impact.
 
@@ -4034,13 +4034,13 @@ And please stop arguing and let the judge decide.
 
 This is the rule for **High** severity:
 
-> Definite loss of funds **without** (extensive) limitations of external conditions. The loss of the affected party must exceed 1%.
+> Definite loss of funds **without** (extensive) limitations of external conditions. The loss of the affected party must exceed 1\%.
 
-We only have a 1% loss if someone doesn't update their position for a few months. This is a serious limitation. To be High severity, there should be no limitation as written in the rule.
+We only have a 1\% loss if someone doesn't update their position for a few months. This is a serious limitation. To be High severity, there should be no limitation as written in the rule.
 
 But it perfectly fits the **Medium** severity rule:
 
->Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 
 My decision is to reject both escalations and leave this issue Medium severity.
 
@@ -4055,8 +4055,8 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393/#issuecomment-2393292065): rejected
-- [obou07](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393/#issuecomment-2395131426): rejected
+- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393/\#issuecomment-2393292065): rejected
+- [obou07](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/393/\#issuecomment-2395131426): rejected
 
 # Issue M-7: Position Risk Management Functionality Missing in Position Manager and dos in certain conditions 
 
@@ -4117,7 +4117,7 @@ Implement the missing functionality in the `NFTPositionManager.sol`, to allow us
 
 **0xjuaan**
 
-@nevillehuang The main impact here is that if an admin sets the ltv of a collateral to zero, then users withdrawals from the NFTPositionManager will be DoS'd. If this is valid, shouldn't #166 be valid? Since 166 was invalidated since it required admins to perform actions that lead to issues.
+@nevillehuang The main impact here is that if an admin sets the ltv of a collateral to zero, then users withdrawals from the NFTPositionManager will be DoS'd. If this is valid, shouldn't \#166 be valid? Since 166 was invalidated since it required admins to perform actions that lead to issues.
 
 
 
@@ -4281,7 +4281,7 @@ In this updated version, the interest rates are recalculated **before** the liqu
 
 request poc
 
-Seems related to #387 in terms of root cause
+Seems related to \#387 in terms of root cause
 
 **sherlock-admin4**
 
@@ -4291,7 +4291,7 @@ Requests remaining: **14**
 
 **Tomiwasa0**
 
-1. After setting liquidationProtocolFeePercentage to 20%, 20-10% using aave's examples
+1. After setting liquidationProtocolFeePercentage to 20\%, 20-10\% using aave's examples
 
 2.  add to addresses
 
@@ -4303,11 +4303,11 @@ Requests remaining: **14**
 4. PASTE AND RUN THE POC
 
 ```solidity
-  function _generateLiquidationCondition() internal {
-   _mintAndApprove(alice, tokenA, mintAmountA, address(pool)); // alice 1000 tokenA
-   _mintAndApprove(sam, tokenA, mintAmountA, address(pool)); // alice 1000 tokenA
-    _mintAndApprove(bob, tokenB, mintAmountB, address(pool)); // bob 2000 tokenB
-     _mintAndApprove(dav, tokenA, mintAmountA, address(pool)); // bob 2000 tokenB
+  function \_generateLiquidationCondition() internal {
+   \_mintAndApprove(alice, tokenA, mintAmountA, address(pool)); // alice 1000 tokenA
+   \_mintAndApprove(sam, tokenA, mintAmountA, address(pool)); // alice 1000 tokenA
+    \_mintAndApprove(bob, tokenB, mintAmountB, address(pool)); // bob 2000 tokenB
+     \_mintAndApprove(dav, tokenA, mintAmountA, address(pool)); // bob 2000 tokenB
 
     vm.startPrank(alice);
     pool.supplySimple(address(tokenA), alice, supplyAmountA, 0); // 550 tokenA alice supply
@@ -4351,7 +4351,7 @@ Requests remaining: **14**
 
 ```solidity
 function testLiquidationSimple2() external {
-    _generateLiquidationCondition();
+    \_generateLiquidationCondition();
     (, uint256 totalDebtBase,,,,) = pool.getUserAccountData(alice, 0);
 
     vm.startPrank(bob);
@@ -4402,7 +4402,7 @@ Encountered 1 failing test in test/forge/core/pool/PoolLiquidationTests.t.sol:Po
 
 This issue is low severity. It does not satisfy the criteria for medium.
 
-As shown by the POC, the difference in shares is 0.00000106% which is not large enough (0.01%) to be medium severity.
+As shown by the POC, the difference in shares is 0.00000106\% which is not large enough (0.01\%) to be medium severity.
 
 
 
@@ -4410,7 +4410,7 @@ As shown by the POC, the difference in shares is 0.00000106% which is not large 
 
 I agree with @0xSpearmint. This issue does not meet the criteria for Medium severity:
 
-> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 
 I'm planning to invalidate the issue.
 
@@ -4424,7 +4424,7 @@ To get the full impact of this kindly apply the appropriate fix to the bugs disc
 
 In evaluating the current system's functionality, issue 91 identified seven significant impacts resulting from improper handling, specifically regarding the liquidity and collateral management mechanisms:
 
-1. **Incorrect Withdrawals**: The amount withdrawn is consistently 1% of the liquidated amount, which deviates from expected behavior.
+1. **Incorrect Withdrawals**: The amount withdrawn is consistently 1\% of the liquidated amount, which deviates from expected behavior.
   
 2. **Test Validity**: The test scenario I provided demonstrates the validity of the concern, although I was unable to use an appropriate timeframe due to the Chainlink timestamp check. To ensure accuracy, I strongly recommend both parties rerun the scenario with the following conditions:
    - Funds are borrowed and remain unpaid after 3 to 6 months.
@@ -4620,7 +4620,7 @@ This solution ensures that the same reserveFactor is used for both interest accr
 
 request poc
 
-Seems related to #199
+Seems related to \#199
 
 **sherlock-admin3**
 
@@ -4630,7 +4630,7 @@ Requests remaining: **19**
 
 **aliX40**
 
-hey @nevillehuang  ,this is not a dup of #199 , we have #316 which is duplicate of #199 . this one is different 
+hey @nevillehuang  ,this is not a dup of \#199 , we have \#316 which is duplicate of \#199 . this one is different 
 - the comment : 
 > invalid: the cached reserveFactor is also the same used to accrue to treasury.
 is incorrect 
@@ -4650,11 +4650,11 @@ first we need to correct the balance calculation in [PositionBalanceConfiguratio
 +    return self.debtShares.rayMul(index);
   }
 ```
-- add this test to [PoolRepayTests](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/test/forge/core/pool/PoolRepayTests.t.sol#L9)
+- add this test to [PoolRepayTests](https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/test/forge/core/pool/PoolRepayTests.t.sol\#L9)
 ```js
-  function test_auditPoc_reserve() external {
+  function test\_auditPoc\_reserve() external {
     console.log('balance pool before : ', tokenA.balanceOf(address(pool)));
-    _mintAndApprove(alice, tokenA, 2 * amount, address(pool));
+    \_mintAndApprove(alice, tokenA, 2 * amount, address(pool));
     vm.startPrank(alice);
 
     pool.supplySimple(address(tokenA), alice, amount, 0); // deposit : 2000e18
@@ -4663,15 +4663,15 @@ first we need to correct the balance calculation in [PositionBalanceConfiguratio
     vm.stopPrank();
     // wrap sometime so the intrest accrue :
     vm.warp(block.timestamp + 30 days);
-    // change reserve factor to 0.2e4 (20%):
+    // change reserve factor to 0.2e4 (20\%):
     poolFactory.setReserveFactor(0.2e4);
 
     vm.startPrank(alice);
-    tokenA.approve(address(pool), UINT256_MAX);
-    pool.repaySimple(address(tokenA), UINT256_MAX, 0);
+    tokenA.approve(address(pool), UINT256\_MAX);
+    pool.repaySimple(address(tokenA), UINT256\_MAX, 0);
     // withdraw all will revert cause there is not enough funds for treasury due to updating the factor :
     vm.expectRevert();
-    pool.withdrawSimple(address(tokenA), alice, UINT256_MAX, 0);
+    pool.withdrawSimple(address(tokenA), alice, UINT256\_MAX, 0);
     vm.stopPrank();
 
   }
@@ -4680,23 +4680,23 @@ first we need to correct the balance calculation in [PositionBalanceConfiguratio
 
 
 The issue described in the report, is similar to a bug found in the aave v3 codebase when updating the reserveFactor. This bug have been disclosed and fixed with the v3.1 release
-https://github.com/aave-dao/aave-v3-origin/blob/3aad8ca184159732e4b3d8c82cd56a8707a106a2/src/core/contracts/protocol/pool/PoolConfigurator.sol#L300C1-L315C4
+https://github.com/aave-dao/aave-v3-origin/blob/3aad8ca184159732e4b3d8c82cd56a8707a106a2/src/core/contracts/protocol/pool/PoolConfigurator.sol\#L300C1-L315C4
 ```solidity
   function setReserveFactor(
     address asset,
     uint256 newReserveFactor
   ) external override onlyRiskOrPoolAdmins {
-    require(newReserveFactor <= PercentageMath.PERCENTAGE_FACTOR, Errors.INVALID_RESERVE_FACTOR);
+    require(newReserveFactor <= PercentageMath.PERCENTAGE\_FACTOR, Errors.INVALID\_RESERVE\_FACTOR);
 
-  @>>   _pool.syncIndexesState(asset);
+  @>>   \_pool.syncIndexesState(asset);
 
-    DataTypes.ReserveConfigurationMap memory currentConfig = _pool.getConfiguration(asset);
+    DataTypes.ReserveConfigurationMap memory currentConfig = \_pool.getConfiguration(asset);
     uint256 oldReserveFactor = currentConfig.getReserveFactor();
     currentConfig.setReserveFactor(newReserveFactor);
-    _pool.setConfiguration(asset, currentConfig);
+    \_pool.setConfiguration(asset, currentConfig);
     emit ReserveFactorChanged(asset, oldReserveFactor, newReserveFactor);
 
-    _pool.syncRatesState(asset);
+    \_pool.syncRatesState(asset);
   }
 ```
 
@@ -4761,7 +4761,7 @@ This issue falls right between the "Admin Input/call validation" rules and broke
 
 > Admin could have an incorrect call order. An admin action can break certain assumptions about the functioning of the code.
 
->Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01% and 10 USD.
+>Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01\% and 10 USD.
 
 But I think we have broken functionality here, not an admin error.
 
@@ -4778,7 +4778,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/402/#issuecomment-2395262880): rejected
+- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/402/\#issuecomment-2395262880): rejected
 
 # Issue M-10: Unclaimable reserve assets will accrue in a pool due to the difference between interest paid on borrows and interest earned on supplies 
 
@@ -4958,8 +4958,8 @@ This issue is invalid for multiple reasons
 
 1. The condition for this issue as stated by the watson is that `updateState()` must NOT be called regularly. This is totally unrealistic since any any action (supply, borrow, withdraw, repay, etc) will call `updateState()`. In the POC they provided, it involves not calling `updateState()` for 365 days after borrowing funds.
 
-2. Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) requires the following:
->Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+2. Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging\#v.-how-to-identify-a-medium-issue) requires the following:
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 
 No user experiences a loss in this issue  
 1. Lenders receive the correct interest rate  
@@ -4973,8 +4973,8 @@ No user experiences a loss in this issue  
 > 
 > 1. The condition for this issue as stated by the watson is that `updateState()` must NOT be called regularly. This is totally unrealistic since any any action (supply, borrow, withdraw, repay, etc) will call `updateState()`. In the POC they provided, it involves not calling `updateState()` for 365 days after borrowing funds.
 > 
-> 2. Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue) requires the following:
-> >Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+> 2. Sherlock's [criteria for a medium issue](https://docs.sherlock.xyz/audits/real-time-judging/judging\#v.-how-to-identify-a-medium-issue) requires the following:
+> >Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 > 
 > No user experiences a loss in this issue  
 > 1. Lenders receive the correct interest rate  
@@ -5017,14 +5017,14 @@ contract AuditUnclaimableBalanceBuildupOnPool is PoolLiquidationTest {
 
 ```javascript
 Ran 1 test for test/forge/core/pool/UnclaimableBalanceBuildupOnPool.t.sol:AuditUnclaimableBalanceBuildupOnPool
-[PASS] test_POC_UnclaimableBalanceBuildupOnPool() (gas: 811472)
+[PASS] test\_POC\_UnclaimableBalanceBuildupOnPool() (gas: 811472)
 Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 11.18ms (1.08ms CPU time)
 ```
 
 
 >"2. Sherlock's criteria for a medium issue requires the following:
 >
->Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+>Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 >
 >No user experiences a loss in this issue
 >
@@ -5037,7 +5037,7 @@ The amount locked (lets call it surpluss) increases every time debt is repaid. O
 
 The value of locked funds will clearly exceed 10 USD as there will usually be several percentage points difference between the indexes. This of course will vary depending on the frequency of `updateState()` calls. If this needs to be quantified I would be happy to help, but it clearly exceeds dust values.
 
-Finally, we can refer to the [Sherlock standards](https://github.com/sherlock-protocol/sherlock-v2-docs/blob/e7dc89270b05f8d2fcee69dc4204c7a2b8fb4cf9/audits/judging/judging/README.md?plain=1#L43-L47) to determine that permanent locked funds constitutes a valid issue:
+Finally, we can refer to the [Sherlock standards](https://github.com/sherlock-protocol/sherlock-v2-docs/blob/e7dc89270b05f8d2fcee69dc4204c7a2b8fb4cf9/audits/judging/judging/README.md?plain=1\#L43-L47) to determine that permanent locked funds constitutes a valid issue:
 
 >"2. **Could Denial-of-Service (DOS), griefing, or locking of contracts count as a Medium (or High) issue?** DoS has two separate scores on which it can become an issue:
 >   1. The issue causes locking of funds for users for more than a week.
@@ -5052,9 +5052,9 @@ For me, this issue is borderline Medium/Low. Because of this, we have to look at
 
 These are the requirements for Medium severity:
 
-> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
+> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
 
-The losses exceed 0.01% and 10 USD, and the issue meets the requirements for Medium severity.
+The losses exceed 0.01\% and 10 USD, and the issue meets the requirements for Medium severity.
 
 Planning to reject the escalation and leave the issue as is.
 
@@ -5068,7 +5068,7 @@ The lenders receive the expected supply rate according to the interest rate cont
 
 The protocol receives the expected revenue from the reserve factor.
 
-AAVE does implement a [rescueTokens ](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/libraries/logic/PoolLogic.sol#L75) function but it allows the owner to arbitrarily remove any amount of tokens from the pool, this is fine because AAVE governance is trusted. However, in ZeroLend pool deployment is permission-less, implementing such a function for each pool would pose a huge security risk which is why the protocol chose to not implement it. 
+AAVE does implement a [rescueTokens ](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/libraries/logic/PoolLogic.sol\#L75) function but it allows the owner to arbitrarily remove any amount of tokens from the pool, this is fine because AAVE governance is trusted. However, in ZeroLend pool deployment is permission-less, implementing such a function for each pool would pose a huge security risk which is why the protocol chose to not implement it. 
 
 This looks like an obvious design choice to me. 
 
@@ -5086,7 +5086,7 @@ We all seem to agree that there will be unclaimable assets building up in the po
 
 Given that the devs implemented ‘sweep()’ in NFTPositionManager which claims tokens of much lower value, not implementing similar functionality in the Pool contract is an obvious oversight and cannot be considered design. 
 
-Another piece of evidence that this is not a design choice is the [code comment](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/utils/MathUtils.sol#L50)
+Another piece of evidence that this is not a design choice is the [code comment](https://github.com/sherlock-audit/2024-06-new-scope/blob/c8300e73f4d751796daad3dadbae4d11072b3d79/zerolend-one/contracts/core/pool/utils/MathUtils.sol\#L50)
 
 >”The approximation slightly underpays liquidity providers and undercharges borrowers”
 
@@ -5096,7 +5096,7 @@ The current implementation allows a buildup of unclaimable funds which far excee
 
 
 @0xSpearmint 
-### Who lost the funds?
+\#\#\# Who lost the funds?
 It would be up to the protocol to make a design decision as to who claims these funds. 
 If we take the code comment above it would appear that the suppliers are entitled to these funds (the suppliers must earn close to the interest repaid by borrowers for suppliers to feel the precision lost described in the code comment). 
 I did not take a definitive stand on this, I don’t believe it’s require for valid medium severity. 
@@ -5123,7 +5123,7 @@ I agree with @Nihavent
 
 We have a token loss that meets the Medium severity requirement.
 
-> The loss of the affected party must exceed 0.01% and 10 USD.
+> The loss of the affected party must exceed 0.01\% and 10 USD.
 
 These tokens remain permanently locked in the contract. AAVE has implemented a `rescueTokens` function, which fixes the problem. However, I agree that the recommendation here to implement the same function is not good and may open a new vulnerability because, in the ZeroLend pool, deployment is permissionless. The issue is valid, and the ZeroLend team is left to decide if and how they will fix the stuck tokens.
 
@@ -5140,7 +5140,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/429/#issuecomment-2394981478): rejected
+- [0xspearmint1](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/429/\#issuecomment-2394981478): rejected
 
 # Issue M-11: Supply interest is earned on `accruedToTreasuryShares` resulting in higher than expected treasury fees and under rare circumstances DOSed pool withdrawals 
 
@@ -5340,8 +5340,8 @@ Three possible solutions:
 
 Escalate
 
-This issue is invalid and is different from the #16 #220 #267 #317 group
-#240 is not in the above group
+This issue is invalid and is different from the \#16 \#220 \#267 \#317 group
+\#240 is not in the above group
 
 `accruedToTreasuryShares` should earn supply interest, it is accounted for in the interest calculations and is the exact same way aave works as well.
 
@@ -5349,8 +5349,8 @@ This issue is invalid and is different from the #16 #220 #267 #317 group
 
 > Escalate
 > 
-> This issue is invalid and is different from the #16 #220 #267 #317 group
-> #240 is not in the above group
+> This issue is invalid and is different from the \#16 \#220 \#267 \#317 group
+> \#240 is not in the above group
 > 
 > `accruedToTreasuryShares` should earn supply interest, it is accounted for in the interest calculations and is the exact same way aave works as well.
 
@@ -5364,11 +5364,11 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 > Escalate
 > 
-> This issue is invalid and is different from the #16 #220 #267 #317 group #240 is not in the above group
+> This issue is invalid and is different from the \#16 \#220 \#267 \#317 group \#240 is not in the above group
 > 
 > `accruedToTreasuryShares` should earn supply interest, it is accounted for in the interest calculations and is the exact same way aave works as well.
 
-This report focuses on the edge case regarding frequent calls of `_updateIndexes()` however it still demonstrates a withdrawal DOSed due to insufficient liquidity (see impact 2 on the POC and associated comment):
+This report focuses on the edge case regarding frequent calls of `\_updateIndexes()` however it still demonstrates a withdrawal DOSed due to insufficient liquidity (see impact 2 on the POC and associated comment):
 
 Excerpt from POC:
 
@@ -5401,7 +5401,7 @@ My understanding is in Sherlock duplication rules, valid duplicates do not need 
 This report also discusses interest accruing on minted treasury shares results in more than the `reserveFactor` being claimed by the treasury (see impact 1 in the POC). As mentioned in the mitigations, this could be fixed by sending the fees in assets to the treasury upon debt repayment instead of minting the treasury shares which accrue over time. 
 If this change was implemented it would also mitigate the DOSed withdrawals because a withdrawal would not revert when the pool has just enough liquidity to service the withdrawn assets. 
 
-Finally, the point you make about AAVE accruing interest on treasury shares is not directly applicable to Zerolend because AAVE have removed `executeMintToTreasury()` from the pool withdraw flow [shown here](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/pool/Pool.sol#L196-L216) [and here](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/libraries/logic/SupplyLogic.sol#L106-L163). 
+Finally, the point you make about AAVE accruing interest on treasury shares is not directly applicable to Zerolend because AAVE have removed `executeMintToTreasury()` from the pool withdraw flow [shown here](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/pool/Pool.sol\#L196-L216) [and here](https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/libraries/logic/SupplyLogic.sol\#L106-L163). 
 As a result, AAVEE need not worry about treasury fees being stored in shares because they won't DOS withdrawals.
 
 
@@ -5411,9 +5411,9 @@ EDIT: for clarity I do conceed that impact 1 of this report by itself is low/inf
 
 I agree with @Nihavent comment that this issue can remain a duplicate with the others because it has caught the root cause, which the other issues have reported, and the second impact is the same as the other issues(withdrawal DoS).
 
-Also, from the escalation, I agree that #240 does not belong in this group but in the #101 group.
+Also, from the escalation, I agree that \#240 does not belong in this group but in the \#101 group.
 
-Planning to reject the escalation of this issue(#430) to be invalid, but I'll duplicate #240 with #101.
+Planning to reject the escalation of this issue(\#430) to be invalid, but I'll duplicate \#240 with \#101.
 
 **0xSpearmint**
 
@@ -5421,7 +5421,7 @@ Planning to reject the escalation of this issue(#430) to be invalid, but I'll du
 
 The root cause of this issue as described by the watsons is that `executeMintToTreasury ` will revert when a user attempts to withdraw all the liquidity from a pool.
 
-This is intended, consider the following scenario that assumes a 10% reserve factor:
+This is intended, consider the following scenario that assumes a 10\% reserve factor:
 
 1. Lender lends 10 ETH
 2. Borrower borrows 10 ETH
@@ -5446,11 +5446,11 @@ What if treasuryShares are worth 2 ETH, a pool has 3 ETH of liquidity and a user
 Not necessarily, the example I just gave shows a user attempting to withdraw less than all the liquidity available and still facing a revert. 
 
 
-Note that Aave fixed this issue by removing ‘executeMintToTreasury’ from the withdrawal flow as I described [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430#issuecomment-2395198139)
+Note that Aave fixed this issue by removing ‘executeMintToTreasury’ from the withdrawal flow as I described [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430\#issuecomment-2395198139)
 
 **0xjuaan**
 
-The pool has 6 ETH worth of liquidity, but 0.1 ETH is **reserved** for the treasury. Due to the **reserve** factor of 10%. Clearly these funds meant for the treasury should not be withdrawable by lenders.  
+The pool has 6 ETH worth of liquidity, but 0.1 ETH is **reserved** for the treasury. Due to the **reserve** factor of 10\%. Clearly these funds meant for the treasury should not be withdrawable by lenders.  
 
 **Nihavent**
 
@@ -5471,23 +5471,23 @@ This issue was fixed in Aave for a reason, I’m yet to see a compelling argumen
 
 **cvetanovv**
 
-I believe this issue and its duplicates (excluding #240) are valid because the accumulation of treasury fees could ultimately result in a situation where all withdrawals from the pool are DOSed. 
+I believe this issue and its duplicates (excluding \#240) are valid because the accumulation of treasury fees could ultimately result in a situation where all withdrawals from the pool are DOSed. 
 
 This occurs when the total accrued treasury fees exceed the available liquidity in the pool, thereby preventing suppliers from withdrawing their assets until the pool is replenished.
 
 As @Nihavent has pointed out,  Aave resolved this issue by excluding ‘executeMintToTreasury’ from the withdrawal flow.
 
-My previous decision to reject escalation remains. I will only invalidate #240
+My previous decision to reject escalation remains. I will only invalidate \#240
 
 **0xSpearmint**
 
-@cvetanovv The treasury fees is 10% of the interest paid on loans. This is orders of magnitude smaller than the principal liquidity of the pool. It is not realistic at all for the treasury fees to exceed the available liquidity in the pool unless the pool has > 99% utilization so there is barely anything left. This edge case will not last long at all since the borrower will have a huge interest rate to pay so the DOS will be well below 7 days and the lenders will receive huge yield for that period.
+@cvetanovv The treasury fees is 10\% of the interest paid on loans. This is orders of magnitude smaller than the principal liquidity of the pool. It is not realistic at all for the treasury fees to exceed the available liquidity in the pool unless the pool has > 99\% utilization so there is barely anything left. This edge case will not last long at all since the borrower will have a huge interest rate to pay so the DOS will be well below 7 days and the lenders will receive huge yield for that period.
 
 Furthermore every time a single successful withdrawal occurs, the treasury fees reset to 0. This makes it even harder to accumulate an amount to cause a DOS.
 
 **Nihavent**
 
->"It is not realistic at all for the treasury fees to exceed the available liquidity in the pool unless the pool has > 99% utilization so there is barely anything left. This edge case will not last long at all since the borrower will have a huge interest rate to pay so the DOS will be well below 7 days and the lenders will receive huge yield for that period."
+>"It is not realistic at all for the treasury fees to exceed the available liquidity in the pool unless the pool has > 99\% utilization so there is barely anything left. This edge case will not last long at all since the borrower will have a huge interest rate to pay so the DOS will be well below 7 days and the lenders will receive huge yield for that period."
 
 Your comment is making a lot of assumptions given high utilization is a completely valid pool state. There are a variety of IRMs and varying incentives for users.
 
@@ -5501,7 +5501,7 @@ The issue is no withdrawal can occur when accumulated treasury shares exceed poo
 
 **cvetanovv**
 
-I agree with @Nihavent comment, and my previous decision remains: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430#issuecomment-2435074872
+I agree with @Nihavent comment, and my previous decision remains: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430\#issuecomment-2435074872
 
 **WangSecurity**
 
@@ -5514,7 +5514,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430/#issuecomment-2392041769): rejected
+- [Honour-d-dev](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/430/\#issuecomment-2392041769): rejected
 
 # Issue M-12: `CuratedVaultSetters::_supplyPool()` does not consider the pool cap of the underlying pool, which may cause `deposit()` to revert or lead to an unintended reordering of `supplyQueue` 
 
@@ -5667,7 +5667,7 @@ Then, add an extra check in `CuratedVaultSetters::_supplyPool()` as shown below.
 1 comment(s) were left on this issue during the judging contest.
 
 **Honour** commented:
->  Invalid: see comment on #193
+>  Invalid: see comment on \#193
 
 
 
@@ -5675,8 +5675,8 @@ Then, add an extra check in `CuratedVaultSetters::_supplyPool()` as shown below.
 
 Escalate
 
-This report should be valid and is not a duplicate of https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/399 which is about `maxWithdraw` and `maxRedeem` being non-ERC4626 compliant due to a bug in `_withdrawable()`. 
-On the other hand, this report describes that `_supplyPool()` ignoring the underlying pool cap can result in unexpectedly reverting deposits or an inefficient reordering of the supplyQueue.
+This report should be valid and is not a duplicate of https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/399 which is about `maxWithdraw` and `maxRedeem` being non-ERC4626 compliant due to a bug in `\_withdrawable()`. 
+On the other hand, this report describes that `\_supplyPool()` ignoring the underlying pool cap can result in unexpectedly reverting deposits or an inefficient reordering of the supplyQueue.
 
 
 To address the comment left on https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193 that was referenced on this report:
@@ -5697,8 +5697,8 @@ Therefore both impacts in this report can occur regardless of the admin-set valu
 
 > Escalate
 > 
-> This report should be valid and is not a duplicate of https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/399 which is about `maxWithdraw` and `maxRedeem` being non-ERC4626 compliant due to a bug in `_withdrawable()`. 
-> On the other hand, this report describes that `_supplyPool()` ignoring the underlying pool cap can result in unexpectedly reverting deposits or an inefficient reordering of the supplyQueue.
+> This report should be valid and is not a duplicate of https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/399 which is about `maxWithdraw` and `maxRedeem` being non-ERC4626 compliant due to a bug in `\_withdrawable()`. 
+> On the other hand, this report describes that `\_supplyPool()` ignoring the underlying pool cap can result in unexpectedly reverting deposits or an inefficient reordering of the supplyQueue.
 > 
 > 
 > To address the comment left on https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193 that was referenced on this report:
@@ -5723,9 +5723,9 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 **cvetanovv**
 
-@Nihavent The impact is very similar to issues #337 and #431. 
+@Nihavent The impact is very similar to issues \#337 and \#431. 
 
-You can see this comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/337#issuecomment-2402013737
+You can see this comment: https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/337\#issuecomment-2402013737
 
 I see no reason for it to be any different here. 
 
@@ -5747,22 +5747,22 @@ For reference this issue has the same root cause and impact as https://github.co
 
 @Nihavent I agree that in this issue, the impact is one idea more serious, and we enter the category "broken contract functionality".
 
-Planning to accept the escalation and remove the duplication with #399. I will duplicate this issue(#433) with #193 and #339. This issue will be the main.
+Planning to accept the escalation and remove the duplication with \#399. I will duplicate this issue(\#433) with \#193 and \#339. This issue will be the main.
 
 **0xjuaan**
 
-Hi @cvetanovv, please consider the following [judging comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193#issuecomment-2364150838) regarding why this issue is invalid.
+Hi @cvetanovv, please consider the following [judging comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193\#issuecomment-2364150838) regarding why this issue is invalid.
 
 Vault curators should not set a cap that is greater than the cap of underlying pools. It makes no sense to do so. For example if the underlying pool allows a max of `10e18`, then vault curators should set a deposit cap that is less than or equal to 10e18. This issue requires vault curators to set a cap that is higher than the underlying pool's cap, so is invalid.
 
 
 **Nihavent**
 
-> Hi @cvetanovv, please consider the following [judging comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193#issuecomment-2364150838) regarding why this issue is invalid.
+> Hi @cvetanovv, please consider the following [judging comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193\#issuecomment-2364150838) regarding why this issue is invalid.
 > 
 > Vault curators should not set a cap that is greater than the cap of underlying pools. It makes no sense to do so. For example if the underlying pool allows a max of `10e18`, then vault curators should set a deposit cap that is less than or equal to 10e18. This issue requires vault curators to set a cap that is higher than the underlying pool's cap, so is invalid.
 
-This is not true as I explained here https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433#issuecomment-2391351629
+This is not true as I explained here https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433\#issuecomment-2391351629
 
 Imagine the super pool has 2 underlying pools each with an underlying cap of 10e18. The SuperPool admin sets their caps to 10e18 as you said. Each underlying pool receives deposits from other sources to the value of 9e18. Now a user trying to deposit 2e18 into the SuperPool will revert even though this deposit could be split across the two underlying pools. 
 
@@ -5797,7 +5797,7 @@ We can make inferences from the fact that these two caps exist:
 - The SuperPool cap (1) is set by curators to represent the ideal maximum allocation to an underlying pool. This is one of the risk management tools at the disposal of the SuperPool admins. 
 - If the intended use case of the SuperPool cap (1) was to always have it set to the available cap in the underling pool (2), this could have been achieved programatically and in fact the parameter (1) wouldn't exist. 
 
-[This comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433#issuecomment-2402719025) suggests that a partial mitigation to this issue is to burden SuperPool curators with administrative work of continuously checking for a reduction in available cap in all underlying pools, and reducing the corresponding SuperPool cap to reflect this change. The evidence given for this is there is no timelock on reduction in superPool caps. I believe there are problems with this:
+[This comment](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433\#issuecomment-2402719025) suggests that a partial mitigation to this issue is to burden SuperPool curators with administrative work of continuously checking for a reduction in available cap in all underlying pools, and reducing the corresponding SuperPool cap to reflect this change. The evidence given for this is there is no timelock on reduction in superPool caps. I believe there are problems with this:
 
 1. It completely reduces the purpose of the SuperPool cap from a risk management/capital allocation tool to an administrative task for curators to update (in order to prevent edge-case deposit reverts). 
 2. We can reasonably expect that curators would not update the cap in this way because:
@@ -5843,7 +5843,7 @@ It has been shown that this issue can occur regardless of the most reasonable ad
 
 For this parameter to be used in a way to almost completely avoid this issue, the cap would need to be set extremely low which defeats the purpose of the pool being in the supply queue. 
 
-Additionally, as I explained in detail [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433#issuecomment-2402738726) the setCap functionality should not and will not be used to reduce the likelihood of this issue. 
+Additionally, as I explained in detail [here](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433\#issuecomment-2402738726) the setCap functionality should not and will not be used to reduce the likelihood of this issue. 
 Requiring curators to setCap to avoid this issue costs them the functionality of setting their optimal liquidity allocation to each pool, ie. they lose the intended functionality of the parameter in order to prevent edge-case deposit reverts. Therefore no rational actor would use the parameter in this way. 
 
 If the protocol didn’t want curators to be able to freely set caps, the parameter wouldn’t exist and vaults would inherit the available caps from the underlying pools. 
@@ -5862,10 +5862,10 @@ There is no loss of funds or broken functionality or any substantial impact, the
 This issue is а valid Low severity.
 
 Here are the rules for Medium severity:
-https://docs.sherlock.xyz/audits/real-time-judging/judging#v.-how-to-identify-a-medium-issue
+https://docs.sherlock.xyz/audits/real-time-judging/judging\#v.-how-to-identify-a-medium-issue
 
->1. Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
->2. Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01% and 10 USD.
+>1. Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
+>2. Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01\% and 10 USD.
 
 In this issue, there is neither loss of funds nor broken functionality.
 
@@ -5888,7 +5888,7 @@ How are Watsons able to gauge which issues consistitue a medium if this level of
 
 @Nihavent You are right about that. As you can see in the comments, I was hesitant about having broken functionality. After the protocol comment, then I decided it was Medium because it was important for them to have the function not revert.
 
-In this contract(`CuratedVaultSetters.sol`), we also have indications that the function should not revert, so I think we have broken functionality here also: https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/vaults/CuratedVaultSetters.sol#L133
+In this contract(`CuratedVaultSetters.sol`), we also have indications that the function should not revert, so I think we have broken functionality here also: https://github.com/sherlock-audit/2024-06-new-scope/blob/main/zerolend-one/contracts/core/vaults/CuratedVaultSetters.sol\#L133
 
 Planning to accept the escalation and make this issue Medium.
 
@@ -5900,7 +5900,7 @@ Hi @cvetanovv [193](https://github.com/sherlock-audit/2024-06-new-scope-judging/
 
 > Hi @cvetanovv [193](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/193) is also a duplicate of this issue.
 
-Thanks for the mention. I will also duplicate #193 to this issue.
+Thanks for the mention. I will also duplicate \#193 to this issue.
 
 **WangSecurity**
 
@@ -5914,7 +5914,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [Nihavent](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433/#issuecomment-2391351629): accepted
+- [Nihavent](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/433/\#issuecomment-2391351629): accepted
 
 # Issue M-13: Curated Vault allocators cannot `reallocate()` a pool to zero due to attempting to withdraw 0 tokens from the underlying pool 
 
@@ -6290,12 +6290,12 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 This is the High severity rule:
 
-> Definite loss of funds without (extensive) **limitations of external conditions**. The loss of the affected party must exceed 1%.
+> Definite loss of funds without (extensive) **limitations of external conditions**. The loss of the affected party must exceed 1\%.
 
 Medium: 
 
-> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01% and 10 USD.
-> Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01% and 10 USD.
+> Causes a loss of funds but requires certain external conditions or specific states, or a loss is highly constrained. The loss of the affected party must exceed 0.01\% and 10 USD.
+> Breaks core contract functionality, rendering the contract useless or leading to loss of funds of the affected party larger than 0.01\% and 10 USD.
 
 We can see that in this issue, we have no loss of funds without any constrains.
 
@@ -6311,9 +6311,9 @@ Planning to reject the escalation and leave the issue as is.
 
 The reason why it's high severity is that the user will not be able to withdraw a certain amount of collateral, since they cant repay.
 
-Lets say they deposit $100 and borrow $80. (LTV is 80%)
+Lets say they deposit \$100 and borrow \$80. (LTV is 80\%)
 
-Now they cant repay the $80, so their $100 is stuck forever. So they effectively lost $20. 
+Now they cant repay the \$80, so their \$100 is stuck forever. So they effectively lost \$20. 
 
 **DemoreXTess**
 
@@ -6346,7 +6346,7 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [haxatron](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/467/#issuecomment-2394853299): rejected
+- [haxatron](https://github.com/sherlock-audit/2024-06-new-scope-judging/issues/467/\#issuecomment-2394853299): rejected
 
 # Issue M-15: The repayment process in the NFTPositionManager can sometimes be reverted 
 
